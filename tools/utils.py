@@ -39,6 +39,7 @@ from paddlevideo.loader.pipelines import (
     TenCrop, ToArray, UniformCrop, VideoDecoder, SegmentationSampler)
 from paddlevideo.metrics.ava_utils import read_labelmap
 from paddlevideo.metrics.bmn_metric import boundary_choose, soft_nms
+from paddlevideo.modeling.framework.segmenters.utils import ASRFPostProcessing
 from paddlevideo.utils import Registry, build, get_config
 from paddlevideo.modeling.framework.segmenters.utils import ASRFPostProcessing
 
