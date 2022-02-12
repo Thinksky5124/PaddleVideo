@@ -76,7 +76,7 @@ python main.py  --test -c configs/segmentation/ms_tcn/ms_tcn_GTEA.yaml --weights
 ```bash
 python3.7 tools/export_model.py \
     -c configs/segmentation/ms_tcn/ms_tcn_GTEA.yaml \
-    --p ./output/MSTCN/MSTCN_epoch_00011.pdparams \
+    --p ./output/MSTCN/MSTCN_epoch_00001.pdparams \
     -o ./inference
 ```
 

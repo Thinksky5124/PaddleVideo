@@ -1,0 +1,62 @@
+# Split Train
+## prepare data
+```bash
+# gtea
+python applications/LightWeight/transform_segmentation_label.py data/gtea data/gtea/groundTruth data/gtea --mode localization
+python applications/LightWeight/prepare_video_recognition_data.py data/gtea/label.json data/gtea/Videos data/gtea --negative_sample_num 60
+# ! have background class
+
+# 50salads
+python applications/LightWeight/transform_segmentation_label.py data/50salads data/50salads/groundTruth data/50salads --mode localization
+python applications/LightWeight/prepare_video_recognition_data.py data/50salads/label.json data/50salads/Videos data/50salads --negative_sample_num 0 --sample_rate 0.3
+# ! no background class
+
+# breakfast
+
+```
+
+GTEA:
+
+mean RGB :[0.5505552534004328, 0.42423616561376576, 0.17930791124574694]
+
+std RGB : [0.13311456349527262, 0.14092562889239943, 0.12356268405634434]
+
+50salads:
+
+mean RGB :[0.5505552534004328, 0.42423616561376576, 0.17930791124574694]
+
+std RGB : [0.13311456349527262, 0.14092562889239943, 0.12356268405634434]
+
+## train model
+```bash
+# single gpu
+export CUDA_VISIBLE_DEVICES=2
+python main.py  --validate -c applications/LightWeight/config/split/tsm_gtea.yaml --seed 0
+# multi gpu
+export CUDA_VISIBLE_DEVICES=2,3
+python -B -m paddle.distributed.launch --gpus="2,3"  --log_dir=./output main.py  --validate -c applications/LightWeight/config/split/tsm_gtea.yaml
+```
+
+## extracte feture
+```bash
+# export infer model
+python tools/export_model.py -c applications/LightWeight/config/split/tsm_extractor_gtea.yaml \
+                                -p output/TSM/TSM_best.pdparams \
+                                -o inference/TSM
+
+# use infer model to extract video feature
+python applications/LightWeight/extractor.py --input_file data/gtea/Videos \
+                           --output_path data/gtea/extract_features \
+                           --config applications/LightWeight/config/split/tsm_extractor_gtea.yaml \
+                           --model_file inference/TSM/TSM.pdmodel \
+                           --params_file inference/TSM/TSM.pdiparams \
+                           --use_gpu=True \
+                           --use_tensorrt=False \
+                           --batch_size=8
+```
+## segmentation model train
+```bash
+export CUDA_VISIBLE_DEVICES=2
+python main.py  --validate -c applications/LightWeight/config/split/ms_tcn_GTEA.yaml
+python main.py  --validate -c applications/LightWeight/config/split/asrf_GTEA.yaml
+```

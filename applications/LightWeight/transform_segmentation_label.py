@@ -30,7 +30,8 @@ def segmentation_convert_localization_label(prefix_data_path, out_path,
     labels_list = []
     for label_name in tqdm(label_txt_name_list, desc='label convert:'):
         label_dict = {}
-        label_dict["url"] = label_name.split(".")[0] + ".mp4"
+        # Todos: according video format change
+        label_dict["url"] = label_name.split(".")[0] + ".avi"
         label_txt_path = os.path.join(prefix_data_path, label_name)
 
         with open(label_txt_path, "r", encoding='utf-8') as f:
@@ -161,7 +162,7 @@ def main():
             segmentation_convert_localization_label(args.data_path,
                                                     args.out_path,
                                                     action_dict,
-                                                    fps=15.0)
+                                                    fps=30.0)
 
     else:
         raise NotImplementedError
