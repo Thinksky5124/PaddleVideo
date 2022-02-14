@@ -31,10 +31,11 @@ class SegmentationSampler(object):
 
     def __call__(self, results):
         for key, data in results.items():
-            if len(data.shape) == 1:
-                data = data[::self.sample_rate]
-                results[key] = copy.deepcopy(data)
-            else:
-                data = data[:, ::self.sample_rate]
-                results[key] = copy.deepcopy(data)
+            if key not in ["video_name"]:
+                if len(data.shape) == 1:
+                    data = data[::self.sample_rate]
+                    results[key] = copy.deepcopy(data)
+                else:
+                    data = data[:, ::self.sample_rate]
+                    results[key] = copy.deepcopy(data)
         return results

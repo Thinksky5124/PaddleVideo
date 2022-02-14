@@ -77,7 +77,7 @@ def test_model(cfg, weights, parallel=True):
     if cfg.MODEL.framework == "FastRCNN":
         Metric.set_dataset_info(dataset.info, len(dataset))
 
-    warmup_num = 20
+    warmup_num = 5
     for batch_id, data in enumerate(data_loader):
         if cfg.model_name in [
                 'CFBI'

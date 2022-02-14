@@ -18,196 +18,11 @@ from .registry import METRIC
 from .base import BaseMetric
 from paddlevideo.utils import get_logger
 
+from .segmentation_utils import get_labels_scores_start_end_time, get_labels_start_end_time
+from .segmentation_utils import levenstein, edit_score, f_score, boundary_AR
+from .segmentation_utils import wrapper_compute_average_precision
+
 logger = get_logger("paddlevideo")
-
-
-def get_labels_scores_start_end_time(input_np,
-                                     frame_wise_labels,
-                                     actions_dict,
-                                     bg_class=["background", "None"]):
-    labels = []
-    starts = []
-    ends = []
-    scores = []
-
-    boundary_score_ptr = 0
-
-    last_label = frame_wise_labels[0]
-    if frame_wise_labels[0] not in bg_class:
-        labels.append(frame_wise_labels[0])
-        starts.append(0)
-    for i in range(len(frame_wise_labels)):
-        if frame_wise_labels[i] != last_label:
-            if frame_wise_labels[i] not in bg_class:
-                labels.append(frame_wise_labels[i])
-                starts.append(i)
-            if last_label not in bg_class:
-                ends.append(i)
-                score = np.mean(
-                        input_np[actions_dict[labels[boundary_score_ptr]], \
-                            starts[boundary_score_ptr]:(ends[boundary_score_ptr] + 1)]
-                        )
-                scores.append(score)
-                boundary_score_ptr = boundary_score_ptr + 1
-            last_label = frame_wise_labels[i]
-    if last_label not in bg_class:
-        ends.append(i + 1)
-        score = np.mean(
-                    input_np[actions_dict[labels[boundary_score_ptr]], \
-                        starts[boundary_score_ptr]:(ends[boundary_score_ptr] + 1)]
-                    )
-        scores.append(score)
-        boundary_score_ptr = boundary_score_ptr + 1
-
-    return labels, starts, ends, scores
-
-
-def get_labels_start_end_time(frame_wise_labels,
-                              bg_class=["background", "None"]):
-    labels = []
-    starts = []
-    ends = []
-    last_label = frame_wise_labels[0]
-    if frame_wise_labels[0] not in bg_class:
-        labels.append(frame_wise_labels[0])
-        starts.append(0)
-    for i in range(len(frame_wise_labels)):
-        if frame_wise_labels[i] != last_label:
-            if frame_wise_labels[i] not in bg_class:
-                labels.append(frame_wise_labels[i])
-                starts.append(i)
-            if last_label not in bg_class:
-                ends.append(i)
-            last_label = frame_wise_labels[i]
-    if last_label not in bg_class:
-        ends.append(i + 1)
-    return labels, starts, ends
-
-
-def levenstein(p, y, norm=False):
-    m_row = len(p)
-    n_col = len(y)
-    D = np.zeros([m_row + 1, n_col + 1], np.float)
-    for i in range(m_row + 1):
-        D[i, 0] = i
-    for i in range(n_col + 1):
-        D[0, i] = i
-
-    for j in range(1, n_col + 1):
-        for i in range(1, m_row + 1):
-            if y[j - 1] == p[i - 1]:
-                D[i, j] = D[i - 1, j - 1]
-            else:
-                D[i, j] = min(D[i - 1, j] + 1, D[i, j - 1] + 1,
-                              D[i - 1, j - 1] + 1)
-
-    if norm:
-        score = (1 - D[-1, -1] / max(m_row, n_col)) * 100
-    else:
-        score = D[-1, -1]
-
-    return score
-
-
-def edit_score(recognized,
-               ground_truth,
-               norm=True,
-               bg_class=["background", "None"]):
-    P, _, _ = get_labels_start_end_time(recognized, bg_class)
-    Y, _, _ = get_labels_start_end_time(ground_truth, bg_class)
-    return levenstein(P, Y, norm)
-
-
-def f_score(recognized, ground_truth, overlap, bg_class=["background", "None"]):
-    p_label, p_start, p_end = get_labels_start_end_time(recognized, bg_class)
-    y_label, y_start, y_end = get_labels_start_end_time(ground_truth, bg_class)
-
-    tp = 0
-    fp = 0
-
-    hits = np.zeros(len(y_label))
-
-    for j in range(len(p_label)):
-        intersection = np.minimum(p_end[j], y_end) - np.maximum(
-            p_start[j], y_start)
-        union = np.maximum(p_end[j], y_end) - np.minimum(p_start[j], y_start)
-        IoU = (1.0 * intersection / union) * (
-            [p_label[j] == y_label[x] for x in range(len(y_label))])
-        # Get the best scoring segment
-        idx = np.array(IoU).argmax()
-
-        if IoU[idx] >= overlap and not hits[idx]:
-            tp += 1
-            hits[idx] = 1
-        else:
-            fp += 1
-    fn = len(y_label) - sum(hits)
-    return float(tp), float(fp), float(fn)
-
-
-def boundary_AR(pred_boundary, gt_boundary, overlap_list, max_proposal):
-
-    p_label, p_start, p_end, p_scores = pred_boundary
-    y_label, y_start, y_end, _ = gt_boundary
-
-    # sort proposal
-    pred_dict = {
-        "label": p_label,
-        "start": p_start,
-        "end": p_end,
-        "scores": p_scores
-    }
-    pdf = pd.DataFrame(pred_dict)
-    pdf = pdf.sort_values(by="scores", ascending=False)
-    p_label = list(pdf["label"])
-    p_start = list(pdf["start"])
-    p_end = list(pdf["end"])
-    p_scores = list(pdf["scores"])
-
-    # refine AN
-    if len(p_label) < max_proposal and len(p_label) > 0:
-        p_label = p_label + [p_label[-1]] * (max_proposal - len(p_label))
-        p_start = p_start + [p_start[-1]] * (max_proposal - len(p_start))
-        p_start = p_start + p_start[len(p_start) -
-                                    (max_proposal - len(p_start)):]
-        p_end = p_end + [p_end[-1]] * (max_proposal - len(p_end))
-        p_scores = p_scores + [p_scores[-1]] * (max_proposal - len(p_scores))
-    elif len(p_label) > max_proposal:
-        p_label[max_proposal:] = []
-        p_start[max_proposal:] = []
-        p_end[max_proposal:] = []
-        p_scores[max_proposal:] = []
-
-    t_AR = np.zeros(len(overlap_list))
-
-    for i in range(len(overlap_list)):
-        overlap = overlap_list[i]
-
-        tp = 0
-        fp = 0
-        hits = np.zeros(len(y_label))
-
-        for j in range(len(p_label)):
-            intersection = np.minimum(p_end[j], y_end) - np.maximum(
-                p_start[j], y_start)
-            union = np.maximum(p_end[j], y_end) - np.minimum(
-                p_start[j], y_start)
-            IoU = (1.0 * intersection / union)
-            # Get the best scoring segment
-            idx = np.array(IoU).argmax()
-
-            if IoU[idx] >= overlap and not hits[idx]:
-                tp += 1
-                hits[idx] = 1
-            else:
-                fp += 1
-        fn = len(y_label) - sum(hits)
-
-        recall = float(tp) / (float(tp) + float(fn))
-        t_AR[i] = recall
-
-    AR = np.mean(t_AR)
-    return AR
 
 
 @METRIC.register
@@ -224,7 +39,8 @@ class SegmentationMetric(BaseMetric):
                  log_interval=1,
                  tolerance=5,
                  boundary_threshold=0.7,
-                 max_proposal=100):
+                 max_proposal=100,
+                 tiou_thresholds=np.linspace(0.5, 0.95, 10)):
         """prepare for metrics
         """
         super().__init__(data_size, batch_size, log_interval)
@@ -252,10 +68,27 @@ class SegmentationMetric(BaseMetric):
         self.max_proposal = max_proposal
         self.AR_at_AN = [[] for _ in range(max_proposal)]
 
+        # localization score
+        self.tiou_thresholds = tiou_thresholds
+        self.pred_results_dict = {
+            "video-id": [],
+            "t_start": [],
+            "t_end": [],
+            "label": [],
+            "score": []
+        }
+        self.gt_results_dict = {
+            "video-id": [],
+            "t_start": [],
+            "t_end": [],
+            "label": []
+        }
+
     def update(self, batch_id, data, outputs):
         """update metrics during each iter
         """
         groundTruth = data[1]
+        vid = data[-1]
 
         predicted = outputs['predict']
         output_np = outputs['output_np']
@@ -280,9 +113,9 @@ class SegmentationMetric(BaseMetric):
             ]))
         gt_content = list(gt_content)
 
-        pred_boundary = get_labels_scores_start_end_time(
+        pred_detection = get_labels_scores_start_end_time(
             outputs_arr, recog_content, self.actions_dict)
-        gt_boundary = get_labels_scores_start_end_time(
+        gt_detection = get_labels_scores_start_end_time(
             np.ones(outputs_arr.shape), gt_content, self.actions_dict)
 
         # cls score
@@ -317,11 +150,39 @@ class SegmentationMetric(BaseMetric):
 
         # proposal score
         for AN in range(self.max_proposal):
-            AR = boundary_AR(pred_boundary,
-                             gt_boundary,
+            AR = boundary_AR(pred_detection,
+                             gt_detection,
                              self.overlap,
                              max_proposal=(AN + 1))
             self.AR_at_AN[AN].append(AR)
+
+        # localization score
+        result_dict = {}
+        vid_list = []
+
+        p_label, p_start, p_end, p_scores = pred_detection
+        g_label, g_start, g_end, _ = gt_detection
+        p_vid_list = vid * len(p_label)
+        g_vid_list = vid * len(g_label)
+
+        # collect
+        self.pred_results_dict[
+            "video-id"] = self.pred_results_dict["video-id"] + p_vid_list
+        self.pred_results_dict[
+            "t_start"] = self.pred_results_dict["t_start"] + p_start
+        self.pred_results_dict[
+            "t_end"] = self.pred_results_dict["t_end"] + p_end
+        self.pred_results_dict[
+            "label"] = self.pred_results_dict["label"] + p_label
+        self.pred_results_dict[
+            "score"] = self.pred_results_dict["score"] + p_scores
+
+        self.gt_results_dict[
+            "video-id"] = self.gt_results_dict["video-id"] + g_vid_list
+        self.gt_results_dict[
+            "t_start"] = self.gt_results_dict["t_start"] + g_start
+        self.gt_results_dict["t_end"] = self.gt_results_dict["t_end"] + g_end
+        self.gt_results_dict["label"] = self.gt_results_dict["label"] + g_label
 
     def accumulate(self):
         """accumulate metrics when finished all iters.
@@ -346,6 +207,17 @@ class SegmentationMetric(BaseMetric):
         AR_at_AN5 = np.mean(proposal_AUC[4, :])
         AR_at_AN15 = np.mean(proposal_AUC[14, :])
 
+        # localization metric
+        prediction = pd.DataFrame(self.pred_results_dict)
+        ground_truth = pd.DataFrame(self.gt_results_dict)
+
+        ap = wrapper_compute_average_precision(prediction, ground_truth,
+                                               self.tiou_thresholds,
+                                               self.actions_dict)
+
+        mAP = ap.mean(axis=1)
+        average_mAP = mAP.mean()
+
         # log metric
         log_mertic_info = "dataset model performence: "
         # preds ensemble
@@ -360,6 +232,10 @@ class SegmentationMetric(BaseMetric):
         log_mertic_info += "AR@AN1: {:.4f}, ".format(AR_at_AN1)
         log_mertic_info += "AR@AN5: {:.4f}, ".format(AR_at_AN5)
         log_mertic_info += "AR@AN15: {:.4f}, ".format(AR_at_AN15)
+
+        # localization metric
+        log_mertic_info += "mAP@0.5: {:.4f}, ".format(mAP[0])
+        log_mertic_info += "avg_mAP: {:.4f}, ".format(average_mAP)
         logger.info(log_mertic_info)
 
         # log metric
@@ -373,6 +249,8 @@ class SegmentationMetric(BaseMetric):
         metric_dict['AR@AN1'] = AR_at_AN1
         metric_dict['AR@AN5'] = AR_at_AN5
         metric_dict['AR@AN15'] = AR_at_AN15
+        metric_dict['mAP@0.5'] = mAP[0]
+        metric_dict['avg_mAP'] = average_mAP
 
         # clear for next epoch
         # cls
@@ -385,5 +263,19 @@ class SegmentationMetric(BaseMetric):
         self.total_video = 0
         # proposal
         self.AR_at_AN = [[] for _ in range(self.max_proposal)]
+        # localization
+        self.pred_results_dict = {
+            "video-id": [],
+            "t_start": [],
+            "t_end": [],
+            "label": [],
+            "score": []
+        }
+        self.gt_results_dict = {
+            "video-id": [],
+            "t_start": [],
+            "t_end": [],
+            "label": []
+        }
 
         return metric_dict
