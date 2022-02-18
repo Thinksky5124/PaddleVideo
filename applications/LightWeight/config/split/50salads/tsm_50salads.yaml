@@ -98,7 +98,7 @@ OPTIMIZER: #OPTIMIZER field
     momentum: 0.9
     learning_rate: #Mandatory, the type of learning rate scheduler, associate to the 'paddlevideo/solver/'
         name: 'PiecewiseDecay'
-        boundaries: [15, 35]
+        boundaries: [15, 25]
         values: [0.001, 0.0005, 0.0001]  #1 cards * 8 batch size
     weight_decay:
         name: 'L2'
@@ -119,5 +119,5 @@ INFERENCE:
 model_name: "TSM"
 log_interval: 20 #Optional, the interal of logger, default:10
 save_interval: 10
-epochs: 50 #Mandatory, total epoch
+epochs: 30 #Mandatory, total epoch
 log_level: "INFO" #Optional, the logger level. default: "INFO"

@@ -37,7 +37,7 @@ python data/prepare_asrf_data.py --dataset_dir data/
 ```bash
 # GTEA数据集
 export CUDA_VISIBLE_DEVICES=3
-python3.7 main.py  --validate -c configs/segmentation/asrf/asrf_GTEA.yaml
+python3.7 main.py  --validate -c configs/segmentation/asrf/asrf_GTEA.yaml --seed 0
 ```
 
 - 从头开始训练，使用上述启动命令行或者脚本程序即可启动训练，不需要用到预训练模型，视频动作分割模型通常为全卷积网络，由于视频的长度不一，故视频动作分割模型的scr字段通常设为1，即不需要批量训练，目前也仅支持**单样本**训练

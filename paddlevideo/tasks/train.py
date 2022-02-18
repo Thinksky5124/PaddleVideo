@@ -358,7 +358,7 @@ def train_model(cfg,
                     logger.info(
                         f"Already save the best model (rmse){int(best * 10000) / 10000}"
                     )
-                elif cfg.MODEL.framework in ['MSTCN', 'ASRF']:
+                elif cfg.MODEL.framework in ['MSTCN', 'ASRF', 'ETE']:
                     logger.info(
                         f"Already save the best model (F1@0.50){int(best * 10000) / 10000}"
                     )

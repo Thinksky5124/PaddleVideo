@@ -157,8 +157,6 @@ class SegmentationMetric(BaseMetric):
             self.AR_at_AN[AN].append(AR)
 
         # localization score
-        result_dict = {}
-        vid_list = []
 
         p_label, p_start, p_end, p_scores = pred_detection
         g_label, g_start, g_end, _ = gt_detection
@@ -215,7 +213,7 @@ class SegmentationMetric(BaseMetric):
                                                self.tiou_thresholds,
                                                self.actions_dict)
 
-        mAP = ap.mean(axis=1)
+        mAP = ap.mean(axis=1) * 100
         average_mAP = mAP.mean()
 
         # log metric

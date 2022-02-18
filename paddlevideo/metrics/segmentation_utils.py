@@ -104,24 +104,31 @@ def f_score(recognized, ground_truth, overlap, bg_class=ignore_bg_class):
 
     tp = 0
     fp = 0
+    if len(y_label) > 0:
+        hits = np.zeros(len(y_label))
 
-    hits = np.zeros(len(y_label))
+        for j in range(len(p_label)):
+            intersection = np.minimum(p_end[j], y_end) - np.maximum(
+                p_start[j], y_start)
+            union = np.maximum(p_end[j], y_end) - np.minimum(
+                p_start[j], y_start)
+            IoU = (1.0 * intersection / union) * (
+                [p_label[j] == y_label[x] for x in range(len(y_label))])
+            # Get the best scoring segment
+            idx = np.array(IoU).argmax()
 
-    for j in range(len(p_label)):
-        intersection = np.minimum(p_end[j], y_end) - np.maximum(
-            p_start[j], y_start)
-        union = np.maximum(p_end[j], y_end) - np.minimum(p_start[j], y_start)
-        IoU = (1.0 * intersection / union) * (
-            [p_label[j] == y_label[x] for x in range(len(y_label))])
-        # Get the best scoring segment
-        idx = np.array(IoU).argmax()
-
-        if IoU[idx] >= overlap and not hits[idx]:
-            tp += 1
-            hits[idx] = 1
+            if IoU[idx] >= overlap and not hits[idx]:
+                tp += 1
+                hits[idx] = 1
+            else:
+                fp += 1
+        fn = len(y_label) - sum(hits)
+    else:
+        if len(p_label) < 1:
+            tp = 1
+            fn = 0
         else:
-            fp += 1
-    fn = len(y_label) - sum(hits)
+            fn = 0
     return float(tp), float(fp), float(fn)
 
 
@@ -144,6 +151,8 @@ def boundary_AR(pred_boundary, gt_boundary, overlap_list, max_proposal):
     p_end = list(pdf["end"])
     p_scores = list(pdf["scores"])
 
+    t_AR = np.zeros(len(overlap_list))
+
     # refine AN
     if len(p_label) < max_proposal and len(p_label) > 0:
         p_label = p_label + [p_label[-1]] * (max_proposal - len(p_label))
@@ -157,33 +166,40 @@ def boundary_AR(pred_boundary, gt_boundary, overlap_list, max_proposal):
         p_start[max_proposal:] = []
         p_end[max_proposal:] = []
         p_scores[max_proposal:] = []
-
-    t_AR = np.zeros(len(overlap_list))
+    else:
+        return np.mean(t_AR)
 
     for i in range(len(overlap_list)):
         overlap = overlap_list[i]
 
         tp = 0
         fp = 0
-        hits = np.zeros(len(y_label))
 
-        for j in range(len(p_label)):
-            intersection = np.minimum(p_end[j], y_end) - np.maximum(
-                p_start[j], y_start)
-            union = np.maximum(p_end[j], y_end) - np.minimum(
-                p_start[j], y_start)
-            IoU = (1.0 * intersection / union)
-            # Get the best scoring segment
-            idx = np.array(IoU).argmax()
+        if len(y_label) > 0:
+            hits = np.zeros(len(y_label))
 
-            if IoU[idx] >= overlap and not hits[idx]:
-                tp += 1
-                hits[idx] = 1
+            for j in range(len(p_label)):
+                intersection = np.minimum(p_end[j], y_end) - np.maximum(
+                    p_start[j], y_start)
+                union = np.maximum(p_end[j], y_end) - np.minimum(
+                    p_start[j], y_start)
+                IoU = (1.0 * intersection / union)
+                # Get the best scoring segment
+                idx = np.array(IoU).argmax()
+
+                if IoU[idx] >= overlap and not hits[idx]:
+                    tp += 1
+                    hits[idx] = 1
+                else:
+                    fp += 1
+            fn = len(y_label) - sum(hits)
+
+            recall = float(tp) / (float(tp) + float(fn))
+        else:
+            if len(p_label) < 1:
+                recall = float(1.0)
             else:
-                fp += 1
-        fn = len(y_label) - sum(hits)
-
-        recall = float(tp) / (float(tp) + float(fn))
+                recall = float(0.0)
         t_AR[i] = recall
 
     AR = np.mean(t_AR)
@@ -346,13 +362,14 @@ def wrapper_compute_average_precision(prediction, ground_truth, tiou_thresholds,
     ground_truth_by_label = ground_truth.groupby('label')
     prediction_by_label = prediction.groupby('label')
 
-    results = Parallel(n_jobs=1)(delayed(compute_average_precision_detection)(
-        ground_truth=ground_truth_by_label.get_group(label_name).reset_index(
-            drop=True),
-        prediction=get_predictions_with_label(prediction_by_label, label_name,
-                                              cidx),
-        tiou_thresholds=tiou_thresholds,
-    ) for label_name, cidx in activity_dict.items())
+    results = Parallel(n_jobs=len(activity_dict))(
+        delayed(compute_average_precision_detection)(
+            ground_truth=get_predictions_with_label(ground_truth_by_label,
+                                                    label_name, cidx),
+            prediction=get_predictions_with_label(prediction_by_label,
+                                                  label_name, cidx),
+            tiou_thresholds=tiou_thresholds,
+        ) for label_name, cidx in activity_dict.items())
 
     for i, cidx in enumerate(activity_dict.values()):
         ap[:, cidx] = results[i]

@@ -20,19 +20,19 @@ DATASET: #DATASET field
     test_num_workers: 0
     train:
         format: "MSTCNDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
-        file_path: "./data/gtea/splits/train.split1.bundle" #Mandatory, train data index file path
+        file_path: "./data/gtea/splits/train.split4.bundle" #Mandatory, train data index file path
         feature_path: "./data/gtea/features"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
     valid:
         format: "MSTCNDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
-        file_path: "./data/gtea/splits/test.split1.bundle" #Mandatory, valid data index file path
+        file_path: "./data/gtea/splits/test.split4.bundle" #Mandatory, valid data index file path
         feature_path: "./data/gtea/features"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
     test:
         format: "MSTCNDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
-        file_path: "./data/gtea/splits/test.split1.bundle" #Mandatory, test data index file path
+        file_path: "./data/gtea/splits/test.split4.bundle" #Mandatory, test data index file path
         feature_path: "./data/gtea/features"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"

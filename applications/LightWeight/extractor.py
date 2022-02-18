@@ -44,6 +44,7 @@ def parse_args():
                         type=str,
                         help="output file path")
     parser.add_argument("--model_file", type=str)
+    parser.add_argument("--gt_path", type=str)
     parser.add_argument("--params_file", type=str)
 
     # params for predict
@@ -162,14 +163,20 @@ class FeatureExtractorSampler(Sampler):
         end_frame = results['end_frame']
         frames_idx = []
 
+        if start_frame > frames_len:
+            start_frame = frames_len
+
         if end_frame > frames_len:
             end_frame = frames_len
 
-        if results['format'] == 'video':
-            frames_idx = list(range(start_frame, end_frame))
-
+        if len(frames_idx) < 1:
+            frames_idx = [start_frame - 1]
+        # print(frames_idx)
         else:
-            raise NotImplementedError
+            if results['format'] == 'video':
+                frames_idx = list(range(start_frame, end_frame))
+            else:
+                raise NotImplementedError
 
         return self._get(frames_idx, results)
 
@@ -190,10 +197,19 @@ class Inference_helper():
         self.top_k = top_k
         self.backend = backend
 
-    def postprocess(self, output, output_path, feature_dim, print_output=True):
+    def postprocess(self,
+                    output,
+                    output_path,
+                    frames_len,
+                    feature_dim,
+                    print_output=True):
         """
         output: list
         """
+        isExists = os.path.exists(output_path)
+        if not isExists:
+            os.makedirs(output_path)
+
         output_np = np.concatenate(
             output[:-1],
             axis=0)  # [clip_num, batch_size * num_segs, in_channels]
@@ -204,6 +220,8 @@ class Inference_helper():
         feature_dim_T = np.concatenate([feature_dim_T, last_batch_feature_T],
                                        axis=0)
         feature_dim = feature_dim_T.T
+        if feature_dim.shape[1] != frames_len:
+            feature_dim = feature_dim[:, :frames_len]
 
         save_path = os.path.join(output_path, self.input_file + '.npy')
         # output shape [2048, T] npy
@@ -295,6 +313,13 @@ def main():
     # Inferencing process
     batch_num = args.batch_size
     for file_path in tqdm(files, desc='feature extract:'):
+        # get label len to shape feature len
+        # load label
+        video_name = file_path.split('/')[-1].split('.')[0]
+        target_file_path = os.path.join(args.gt_path, video_name + '.txt')
+        file_ptr = open(target_file_path, 'r')
+        content = file_ptr.read().split('\n')[:-1]
+        frames_len = len(content)
 
         cap = cv2.VideoCapture(file_path)
         videolen = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -315,6 +340,7 @@ def main():
                     start_frame = end_frame
                 else:
                     break
+
             # Pre process batched input
             batched_inputs = InferenceHelper.preprocess(file_path,
                                                         start_frame_list,
@@ -335,6 +361,7 @@ def main():
         InferenceHelper.postprocess(
             video_outputs,
             args.output_path,
+            frames_len,
             cfg.INFERENCE.feature_dim,
             not args.enable_benchmark,
         )

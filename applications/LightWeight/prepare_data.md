@@ -48,14 +48,15 @@ python -B -m paddle.distributed.launch --gpus="2,3"  --log_dir=./output main.py 
 ## extracte feture
 ```bash
 # export infer model
-python tools/export_model.py -c applications/LightWeight/config/split/gtea/tsm_extractor_gtea.yaml \
+python tools/export_model.py -c applications/LightWeight/config/split/50salads/tsm_extractor_50salads.yaml \
                                 -p output/TSM/TSM_best.pdparams \
                                 -o inference/TSM
 
 # use infer model to extract video feature
-python applications/LightWeight/extractor.py --input_file data/gtea/Videos \
-                           --output_path data/gtea/extract_features \
-                           --config applications/LightWeight/config/split/gtea/tsm_extractor_gtea.yaml \
+python applications/LightWeight/extractor.py --input_file data/50salads/Videos \
+                           --output_path data/50salads/extract_features \
+                           --gt_path data/50salads/groundTruth \
+                           --config applications/LightWeight/config/split/50salads/tsm_extractor_50salads.yaml \
                            --model_file inference/TSM/TSM.pdmodel \
                            --params_file inference/TSM/TSM.pdiparams \
                            --use_gpu=True \
@@ -64,7 +65,39 @@ python applications/LightWeight/extractor.py --input_file data/gtea/Videos \
 ```
 ## segmentation model train
 ```bash
+# gtea
 export CUDA_VISIBLE_DEVICES=2
 python main.py  --validate -c applications/LightWeight/config/split/gtea/ms_tcn_GTEA.yaml --seed 0
 python main.py  --validate -c applications/LightWeight/config/split/gtea/asrf_GTEA.yaml --seed 0
+
+# 50salads
+python main.py  --validate -c applications/LightWeight/config/split/50salads/ms_tcn_50salads.yaml --seed 0
+```
+
+# one-shot train
+
+## prepare data
+```bash
+# gtea
+python applications/LightWeight/prepare_ete_data_list.py \
+                        --split_list_path data/gtea/splits \
+                        --label_path data/gtea/groundTruth \
+                        --output_path data/gtea/split_frames \
+                        --window_size 100 \
+                        --strike 100
+```
+
+
+## train model
+```bash
+# gtea
+# single gpu
+export CUDA_VISIBLE_DEVICES=2
+python main.py  --validate -c applications/LightWeight/config/one_shot/gtea/ete_tsm_mstcn.yaml --seed 0
+# multi gpu
+export CUDA_VISIBLE_DEVICES=2,3
+python -B -m paddle.distributed.launch --gpus="2,3"  --log_dir=./output main.py  --validate -c applications/LightWeight/config/one_shot/gtea/ete_tsm_mstcn.yaml
+
+# 50salads
+
 ```

@@ -6,11 +6,8 @@ MODEL: #MODEL field
         num_seg: 15
         depth: 50 #Optional, the depth of backbone architecture.
     head:
-        name: "TSMHead" #Mandatory, indicate the type of head, associate to the 'paddlevideo/modeling/heads'
-        num_classes: 19 #Optional, the number of classes to be classified.
+        name: "TSMExtractorHead" #Mandatory, indicate the type of head, associate to the 'paddlevideo/modeling/heads'
         in_channels: 2048 #input channel of the extracted feature.
-        drop_ratio: 0.5 #the ratio of dropout
-        std: 0.001 #std value in params initialization
 
 
 DATASET: #DATASET field
