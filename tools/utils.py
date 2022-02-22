@@ -114,6 +114,7 @@ def build_inference_helper(cfg):
 
 
 class Base_Inference_helper():
+
     def __init__(self,
                  num_seg=8,
                  seg_len=1,
@@ -170,6 +171,7 @@ class Base_Inference_helper():
 
 @INFERENCE.register()
 class ppTSM_Inference_helper(Base_Inference_helper):
+
     def __init__(self,
                  num_seg=8,
                  seg_len=1,
@@ -209,6 +211,7 @@ class ppTSM_Inference_helper(Base_Inference_helper):
 
 @INFERENCE.register()
 class ppTSN_Inference_helper(Base_Inference_helper):
+
     def __init__(self,
                  num_seg=25,
                  seg_len=1,
@@ -254,6 +257,7 @@ class ppTSN_Inference_helper(Base_Inference_helper):
 
 @INFERENCE.register()
 class BMN_Inference_helper(Base_Inference_helper):
+
     def __init__(self, feat_dim, dscale, tscale, result_path):
         self.feat_dim = feat_dim
         self.dscale = dscale
@@ -340,6 +344,7 @@ class BMN_Inference_helper(Base_Inference_helper):
 
 @INFERENCE.register()
 class TimeSformer_Inference_helper(Base_Inference_helper):
+
     def __init__(self,
                  num_seg=8,
                  seg_len=1,
@@ -385,6 +390,7 @@ class TimeSformer_Inference_helper(Base_Inference_helper):
 
 @INFERENCE.register()
 class VideoSwin_Inference_helper(Base_Inference_helper):
+
     def __init__(self,
                  num_seg=4,
                  seg_len=32,
@@ -465,6 +471,7 @@ class VideoSwin_Inference_helper(Base_Inference_helper):
 
 @INFERENCE.register()
 class VideoSwin_TableTennis_Inference_helper(Base_Inference_helper):
+
     def __init__(self,
                  num_seg=1,
                  seg_len=32,
@@ -593,6 +600,7 @@ class VideoSwin_TableTennis_Inference_helper(Base_Inference_helper):
 
 @INFERENCE.register()
 class SlowFast_Inference_helper(Base_Inference_helper):
+
     def __init__(self,
                  num_frames=32,
                  sampling_rate=2,
@@ -666,6 +674,7 @@ class SlowFast_Inference_helper(Base_Inference_helper):
 
 @INFERENCE.register()
 class STGCN_Inference_helper(Base_Inference_helper):
+
     def __init__(self,
                  num_channels,
                  window_size,
@@ -750,6 +759,7 @@ class MSTCN_Inference_helper(Base_Inference_helper):
         reslut_path = os.path.join("./inference/infer_results/")
         if not os.path.isdir(reslut_path):
             os.makedirs(reslut_path)
+        output = [output]
         for outputs in output:
             output_np = outputs[0]
             recognition = []
@@ -767,7 +777,7 @@ class MSTCN_Inference_helper(Base_Inference_helper):
             f = open(write_path, "w")
             f.writelines(recog_content)
             f.close()
-        print("file write in : " + reslut_path + " Write result success!")
+        print("result write in : " + write_path)
 
 
 @INFERENCE.register()
@@ -833,6 +843,7 @@ class ASRF_Inference_helper(Base_Inference_helper):
         reslut_path = os.path.join("./inference/infer_results/")
         if not os.path.isdir(reslut_path):
             os.makedirs(reslut_path)
+        output = [output]
         for outputs in output:
             outputs_cls_np = outputs[0]
             outputs_boundary_np = outputs[1]
@@ -858,11 +869,12 @@ class ASRF_Inference_helper(Base_Inference_helper):
             f = open(write_path, "w")
             f.writelines(recog_content)
             f.close()
-        print("file write in : " + reslut_path + " Write result success!")
+        print("result write in : " + write_path)
 
 
 @INFERENCE.register()
 class AttentionLSTM_Inference_helper(Base_Inference_helper):
+
     def __init__(
             self,
             num_classes,  #Optional, the number of classes to be classified.
@@ -903,6 +915,7 @@ class AttentionLSTM_Inference_helper(Base_Inference_helper):
 
 @INFERENCE.register()
 class TransNetV2_Inference_helper():
+
     def __init__(self,
                  num_frames,
                  height,
@@ -1075,6 +1088,7 @@ class TransNetV2_Inference_helper():
 
 @INFERENCE.register()
 class ADDS_Inference_helper(Base_Inference_helper):
+
     def __init__(self,
                  frame_idxs=[0],
                  num_scales=4,
@@ -1170,9 +1184,9 @@ class ADDS_Inference_helper(Base_Inference_helper):
         return im
 
 
-
 @INFERENCE.register()
 class AVA_SlowFast_FastRCNN_Inference_helper(Base_Inference_helper):
+
     def __init__(self,
                  detection_model_name,
                  detection_model_weights,
