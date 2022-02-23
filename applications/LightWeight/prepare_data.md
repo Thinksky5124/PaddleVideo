@@ -83,8 +83,8 @@ python applications/LightWeight/prepare_ete_data_list.py \
                         --split_list_path data/gtea/splits \
                         --label_path data/gtea/groundTruth \
                         --output_path data/gtea/split_frames \
-                        --window_size 100 \
-                        --strike 100
+                        --window_size 60 \
+                        --strike 15
 ```
 
 
@@ -100,4 +100,8 @@ python -B -m paddle.distributed.launch --gpus="2,3"  --log_dir=./output main.py 
 
 # 50salads
 
+```
+## test model
+```bash
+python main.py  --test -c applications/LightWeight/config/one_shot/gtea/ete_tsm_mstcn.yaml --weights=./output/ETEMSTCN/ETEMSTCN_best.pdparams
 ```

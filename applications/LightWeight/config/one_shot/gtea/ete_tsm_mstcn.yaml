@@ -3,7 +3,7 @@ MODEL: #MODEL field
     backbone: #Mandatory, indicate the type of backbone, associate to the 'paddlevideo/modeling/backbones/' .
         name: "ResNetTSM" #Mandatory, The name of backbone.
         pretrained: "data/ResNet50_pretrain.pdparams" #Optional, pretrained model path.
-        num_seg: 50
+        num_seg: 30
         depth: 50 #Optional, the depth of backbone architecture.
     neck:
         name: "MSTCNNeck"
@@ -17,38 +17,35 @@ MODEL: #MODEL field
         num_classes: 11 #Optional, the number of classes to be classified.
         in_channels: 64 #Optional, the number of channels in input feature.
         sample_rate: 2
-        sample_len: 100
+        sample_len: 60
         in_channels: 2048 #input channel of the extracted feature.
         drop_ratio: 0.5 #the ratio of dropout
         std: 0.001 #std value in params initialization
 
 DATASET: #DATASET field
-    batch_size: 1 #Mandatory, bacth size
-    num_workers: 1 #Mandatory, XXX the number of subprocess on each GPU.
+    batch_size: 4 #Mandatory, bacth size
+    num_workers: 2 #Mandatory, XXX the number of subprocess on each GPU.
     train:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
-        file_path: "./data/gtea/splits/train.split4.bundle" #Mandatory, train data index file path
+        file_path: "./data/gtea/split_frames/train.split1.bundle" #Mandatory, train data index file path
         videos_path: "./data/gtea/Videos"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
-        sample_len: 100
     valid:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
-        file_path: "./data/gtea/splits/train.split4.bundle" #Mandatory, train data index file path
+        file_path: "./data/gtea/split_frames/test.split1.bundle" #Mandatory, train data index file path
         videos_path: "./data/gtea/Videos"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
-        sample_len: 100
     test:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
-        file_path: "./data/gtea/splits/train.split4.bundle" #Mandatory, train data index file path
+        file_path: "./data/gtea/split_frames/test.split1.bundle" #Mandatory, train data index file path
         videos_path: "./data/gtea/Videos"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
-        sample_len: 100
 
 PIPELINE: #PIPELINE field
     train: #Mandotary, indicate the pipeline to deal with the training data, associate to the 'paddlevideo/loader/pipelines/'
@@ -57,7 +54,7 @@ PIPELINE: #PIPELINE field
             backend: "decord"
         sample:
             name: "VideoStramSampler"
-            sample_len: 100
+            sample_len: 60
             seg_len: 1
             sample_rate: 2
             valid_mode: False
@@ -78,7 +75,7 @@ PIPELINE: #PIPELINE field
             backend: "decord"
         sample:
             name: "VideoStramSampler"
-            sample_len: 100
+            sample_len: 60
             seg_len: 1
             sample_rate: 2
             valid_mode: True
@@ -100,7 +97,7 @@ PIPELINE: #PIPELINE field
             backend: "decord"
         sample:
             name: "VideoStramSampler"
-            sample_len: 100
+            sample_len: 60
             seg_len: 1
             sample_rate: 2
             valid_mode: True
@@ -131,7 +128,7 @@ OPTIMIZER: #OPTIMIZER field
         value: 20.0
 
 METRIC:
-    name: 'SegmentationMetric'
+    name: 'StreamSegmentationMetric'
     overlap: [.1, .25, .5]
     actions_map_file_path: "./data/gtea/mapping.txt"
     tolerance: 5

@@ -87,38 +87,37 @@ class VideoStramSampler(Sampler):
             sampling id.
         """
         frames_len = int(results['frames_len'])
-        if 'start_frame' not in results.keys():
-            start_frame = int(np.floor(random.random() * frames_len))
 
-            if start_frame + self.sample_len >= frames_len:
-                start_frame = frames_len - self.sample_len
+        start_frame = results['start_frame']
+        end_frame = results['end_frame']
+        frames_idx = []
 
-            end_frame = start_frame + self.sample_len
-            frames_idx = []
+        if start_frame > frames_len:
+            start_frame = frames_len
+        if end_frame > frames_len:
+            end_frame = frames_len
 
-            if results['format'] == 'video':
-                frames_idx = list(
-                    range(start_frame, end_frame, self.sample_rate))
-            else:
-                raise NotImplementedError
-            classes = results['labels']
-            labels = classes[start_frame:end_frame]
-            results['labels'] = copy.deepcopy(labels)
-
+        if results['format'] == 'video':
+            frames_idx = list(range(start_frame, end_frame, self.sample_rate))
         else:
-            start_frame = results['start_frame']
-            end_frame = results['end_frame']
-            frames_idx = []
+            raise NotImplementedError
+        classes = results['labels']
+        labels = classes[start_frame:end_frame]
+        results['labels'] = copy.deepcopy(labels)
 
-            if start_frame > frames_len:
-                start_frame = frames_len
-            if end_frame > frames_len:
-                end_frame = frames_len
+        results = self._get(frames_idx, results)
 
-            if results['format'] == 'video':
-                frames_idx = list(
-                    range(start_frame, end_frame, self.sample_rate))
-            else:
-                raise NotImplementedError
+        temporal_len = len(results['imgs'])
+        if temporal_len != self.sample_len // self.sample_rate:
+            imgs_pad = [results['imgs'][-1]
+                        ] * (self.sample_len // self.sample_rate - temporal_len)
+            imgs = results['imgs'] + imgs_pad
+            labels_pad = np.full(self.sample_len - results['labels'].shape[0],
+                                 -100,
+                                 dtype='int64')
+            labels = np.concatenate([results['labels'], labels_pad], axis=0)
 
-        return self._get(frames_idx, results)
+            results['labels'] = copy.deepcopy(labels)
+            results['imgs'] = copy.deepcopy(imgs)
+
+        return results

@@ -3,27 +3,42 @@ import os
 
 from tqdm import tqdm
 
+background_class = ['None', 'background']
 
-def generate_clip_list(vid, video_len, window_size, strike, end_overlap=True):
-    clip_list = []
+
+def resample_clip(clip_dict, avg_sample_num, sample_ratio, bg_thres, bg_class):
+    pass
+
+
+def generate_clip_dict(vid, video_len, window_size, strike, end_overlap=True):
+    clip_dict = {}
+    vid_list = []
+    start_frame_list = []
+    end_frame_list = []
     for start_frame in range(0, video_len, strike):
         if start_frame + window_size > video_len:
             break
 
         end_frame = start_frame + window_size
-        info = vid + ' ' + str(start_frame) + ' ' + str(end_frame)
-        clip_list.append(info)
+        vid_list.append(vid)
+        start_frame_list.append(start_frame)
+        end_frame_list.append(end_frame)
 
     if end_overlap:
         end_frame = video_len
         start_frame = video_len - window_size
-        info = vid + ' ' + str(start_frame) + ' ' + str(end_frame)
-        clip_list.append(info)
+        vid_list.append(vid)
+        start_frame_list.append(start_frame)
+        end_frame_list.append(end_frame)
     else:
         end_frame = video_len
-        info = vid + ' ' + str(start_frame) + ' ' + str(end_frame)
-        clip_list.append(info)
-    return clip_list
+        vid_list.append(vid)
+        start_frame_list.append(start_frame)
+        end_frame_list.append(end_frame)
+    clip_dict['vid'] = vid_list
+    clip_dict['start_frame'] = start_frame_list
+    clip_dict['end_frame'] = end_frame_list
+    return clip_dict
 
 
 def get_arguments():
@@ -75,7 +90,7 @@ def main():
     files = os.listdir(args.split_list_path)
     train_files = [
         file for file in files
-        if (file.endswith(".bundle") or file.startswith('train'))
+        if (file.endswith(".bundle") and file.startswith('train'))
     ]
     train_files = [
         os.path.join(args.split_list_path, file) for file in train_files
@@ -83,7 +98,7 @@ def main():
 
     test_files = [
         file for file in files
-        if (file.endswith(".bundle") or file.startswith('test'))
+        if (file.endswith(".bundle") and file.startswith('test'))
     ]
     test_files = [
         os.path.join(args.split_list_path, file) for file in test_files
@@ -97,7 +112,7 @@ def main():
         train_file_name = train_file.split('/')[-1]
         # output path
         clip_list_path = os.path.join(args.output_path, train_file_name)
-        total_clip_list = []
+        total_clip_dict = {}
         for video_name in video_name_list:
             # read gt file
             file_name = video_name.split('.')[0] + ".txt"
@@ -106,15 +121,25 @@ def main():
             content = file_ptr.read().split('\n')[:-1]
             file_ptr.close()
             video_len = len(content)
-            # split video to clip list
-            clip_list = generate_clip_list(video_name,
+            # split video to clip dcit
+            clip_dict = generate_clip_dict(video_name,
                                            video_len,
                                            window_size=args.window_size,
                                            strike=args.strike,
                                            end_overlap=args.end_overlap)
-            total_clip_list = total_clip_list + clip_list
+            for name, value in clip_dict.items():
+                if name not in total_clip_dict.keys():
+                    total_clip_dict[name] = []
+                else:
+                    total_clip_dict[
+                        name] = total_clip_dict[name] + clip_dict[name]
 
-        recog_content = [line + "\n" for line in total_clip_list]
+        recog_content = []
+        for vid, start_frame, end_frame in zip(total_clip_dict['vid'],
+                                               total_clip_dict['start_frame'],
+                                               total_clip_dict['end_frame']):
+            recog_content.append(vid + ' ' + str(start_frame) + ' ' +
+                                 str(end_frame) + '\n')
         f = open(clip_list_path, "w")
         f.writelines(recog_content)
         f.close()
@@ -127,7 +152,7 @@ def main():
         test_file_name = test_file.split('/')[-1]
         # output path
         clip_list_path = os.path.join(args.output_path, test_file_name)
-        total_clip_list = []
+        total_clip_dict = {}
         for video_name in video_name_list:
             # read gt file
             file_name = video_name.split('.')[0] + ".txt"
@@ -136,15 +161,25 @@ def main():
             content = file_ptr.read().split('\n')[:-1]
             file_ptr.close()
             video_len = len(content)
-            # split video to clip list
-            clip_list = generate_clip_list(video_name,
+            # split video to clip dict
+            clip_dict = generate_clip_dict(video_name,
                                            video_len,
                                            window_size=args.window_size,
-                                           strike=args.strike,
-                                           end_overlap=args.end_overlap)
-            total_clip_list = total_clip_list + clip_list
+                                           strike=args.window_size,
+                                           end_overlap=False)
+            for name, value in clip_dict.items():
+                if name not in total_clip_dict.keys():
+                    total_clip_dict[name] = []
+                else:
+                    total_clip_dict[
+                        name] = total_clip_dict[name] + clip_dict[name]
 
-        recog_content = [line + "\n" for line in total_clip_list]
+        recog_content = []
+        for vid, start_frame, end_frame in zip(total_clip_dict['vid'],
+                                               total_clip_dict['start_frame'],
+                                               total_clip_dict['end_frame']):
+            recog_content.append(vid + ' ' + str(start_frame) + ' ' +
+                                 str(end_frame) + '\n')
         f = open(clip_list_path, "w")
         f.writelines(recog_content)
         f.close()

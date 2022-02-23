@@ -36,6 +36,7 @@ class ETE(BaseSegmenter):
         """Define how the model is going to train, from input to output.
         """
         # NOTE: As the num_segs is an attribute of dataset phase, and didn't pass to build_head phase, should obtain it from imgs(paddle.Tensor) now, then call self.head method.
+        batch_size = imgs.shape[0]
         num_segs = imgs.shape[
             1]  # imgs.shape=[N,T,C,H,W], for most commonly case
         imgs = paddle.reshape_(imgs, [-1] + list(imgs.shape[2:]))
@@ -46,7 +47,7 @@ class ETE(BaseSegmenter):
             feature = None
 
         if self.neck is not None:
-            neck_output = self.neck(feature)
+            neck_output = self.neck(feature, batch_size)
         else:
             neck_output = None
 
@@ -75,9 +76,13 @@ class ETE(BaseSegmenter):
             seg_loss += self.head.segmentation_loss(output[i], video_gt)
         cls_loss = self.head.feature_extract_loss(scores, video_gt)
         loss = self.seg_weight * seg_loss + self.cls_weight * cls_loss
+
+        predicted = paddle.argmax(output[-1], axis=1)
+        predicted = paddle.squeeze(predicted)
+
         loss_metrics = dict()
         loss_metrics['loss'] = loss
-
+        loss_metrics['F1@0.50'] = self.head.get_F1_score(predicted, video_gt)
         return loss_metrics
 
     def val_step(self, data_batch):
@@ -99,8 +104,7 @@ class ETE(BaseSegmenter):
 
         outputs_dict = dict()
         outputs_dict['loss'] = loss
-        outputs_dict['predict'] = predicted
-        outputs_dict['output_np'] = F.sigmoid(output[-1])
+        outputs_dict['F1@0.50'] = self.head.get_F1_score(predicted, video_gt)
         return outputs_dict
 
     def test_step(self, data_batch):

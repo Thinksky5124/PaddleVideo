@@ -25,8 +25,7 @@ from .segmentation_utils import wrapper_compute_average_precision
 logger = get_logger("paddlevideo")
 
 
-@METRIC.register
-class SegmentationMetric(BaseMetric):
+class BaseSegmentationMetric(BaseMetric):
     """
     Test for Video Segmentation based model.
     """
@@ -84,40 +83,8 @@ class SegmentationMetric(BaseMetric):
             "label": []
         }
 
-    def update(self, batch_id, data, outputs):
-        """update metrics during each iter
-        """
-        groundTruth = data[1]
-        vid = data[-1]
-
-        predicted = outputs['predict']
-        output_np = outputs['output_np']
-
-        outputs_np = predicted.numpy()
-        outputs_arr = output_np.numpy()[0, :]
-        gt_np = groundTruth.numpy()[0, :]
-
-        recognition = []
-        for i in range(outputs_np.shape[0]):
-            recognition = np.concatenate((recognition, [
-                list(self.actions_dict.keys())[list(
-                    self.actions_dict.values()).index(outputs_np[i])]
-            ]))
-        recog_content = list(recognition)
-
-        gt_content = []
-        for i in range(gt_np.shape[0]):
-            gt_content = np.concatenate((gt_content, [
-                list(self.actions_dict.keys())[list(
-                    self.actions_dict.values()).index(gt_np[i])]
-            ]))
-        gt_content = list(gt_content)
-
-        pred_detection = get_labels_scores_start_end_time(
-            outputs_arr, recog_content, self.actions_dict)
-        gt_detection = get_labels_scores_start_end_time(
-            np.ones(outputs_arr.shape), gt_content, self.actions_dict)
-
+    def _update_score(self, vid, recog_content, gt_content, pred_detection,
+                      gt_detection):
         # cls score
         correct = 0
         total = 0
@@ -182,9 +149,36 @@ class SegmentationMetric(BaseMetric):
         self.gt_results_dict["t_end"] = self.gt_results_dict["t_end"] + g_end
         self.gt_results_dict["label"] = self.gt_results_dict["label"] + g_label
 
-    def accumulate(self):
-        """accumulate metrics when finished all iters.
+    def _transform_model_result(self, outputs_np, gt_np, outputs_arr):
+        recognition = []
+        for i in range(outputs_np.shape[0]):
+            recognition = np.concatenate((recognition, [
+                list(self.actions_dict.keys())[list(
+                    self.actions_dict.values()).index(outputs_np[i])]
+            ]))
+        recog_content = list(recognition)
+
+        gt_content = []
+        for i in range(gt_np.shape[0]):
+            gt_content = np.concatenate((gt_content, [
+                list(self.actions_dict.keys())[list(
+                    self.actions_dict.values()).index(gt_np[i])]
+            ]))
+        gt_content = list(gt_content)
+
+        pred_detection = get_labels_scores_start_end_time(
+            outputs_arr, recog_content, self.actions_dict)
+        gt_detection = get_labels_scores_start_end_time(
+            np.ones(outputs_arr.shape), gt_content, self.actions_dict)
+
+        return [recog_content, gt_content, pred_detection, gt_detection]
+
+    def update(self, batch_id, data, outputs):
+        """update metrics during each iter
         """
+        raise NotImplementedError
+
+    def _compute_metrics(self):
         # cls metric
         Acc = 100 * float(self.total_correct) / self.total_frame
         Edit = (1.0 * self.total_edit) / self.total_video
@@ -216,27 +210,7 @@ class SegmentationMetric(BaseMetric):
         mAP = ap.mean(axis=1) * 100
         average_mAP = mAP.mean()
 
-        # log metric
-        log_mertic_info = "dataset model performence: "
-        # preds ensemble
-        log_mertic_info += "Acc: {:.4f}, ".format(Acc)
-        log_mertic_info += 'Edit: {:.4f}, '.format(Edit)
-        for s in range(len(self.overlap)):
-            log_mertic_info += 'F1@{:0.2f}: {:.4f}, '.format(
-                self.overlap[s], Fscore[self.overlap[s]])
-
-        # boundary metric
-        log_mertic_info += "Auc: {:.4f}, ".format(AUC)
-        log_mertic_info += "AR@AN1: {:.4f}, ".format(AR_at_AN1)
-        log_mertic_info += "AR@AN5: {:.4f}, ".format(AR_at_AN5)
-        log_mertic_info += "AR@AN15: {:.4f}, ".format(AR_at_AN15)
-
-        # localization metric
-        log_mertic_info += "mAP@0.5: {:.4f}, ".format(mAP[0])
-        log_mertic_info += "avg_mAP: {:.4f}, ".format(average_mAP)
-        logger.info(log_mertic_info)
-
-        # log metric
+        # save metric
         metric_dict = dict()
         metric_dict['Acc'] = Acc
         metric_dict['Edit'] = Edit
@@ -250,6 +224,31 @@ class SegmentationMetric(BaseMetric):
         metric_dict['mAP@0.5'] = mAP[0]
         metric_dict['avg_mAP'] = average_mAP
 
+        return metric_dict
+
+    def _log_metrics(self, metric_dict):
+        # log metric
+        log_mertic_info = "dataset model performence: "
+        # preds ensemble
+        log_mertic_info += "Acc: {:.4f}, ".format(metric_dict['Acc'])
+        log_mertic_info += 'Edit: {:.4f}, '.format(metric_dict['Edit'])
+        for s in range(len(self.overlap)):
+            log_mertic_info += 'F1@{:0.2f}: {:.4f}, '.format(
+                self.overlap[s],
+                metric_dict['F1@{:0.2f}'.format(self.overlap[s])])
+
+        # boundary metric
+        log_mertic_info += "Auc: {:.4f}, ".format(metric_dict['Auc'])
+        log_mertic_info += "AR@AN1: {:.4f}, ".format(metric_dict['AR@AN1'])
+        log_mertic_info += "AR@AN5: {:.4f}, ".format(metric_dict['AR@AN5'])
+        log_mertic_info += "AR@AN15: {:.4f}, ".format(metric_dict['AR@AN15'])
+
+        # localization metric
+        log_mertic_info += "mAP@0.5: {:.4f}, ".format(metric_dict['mAP@0.5'])
+        log_mertic_info += "avg_mAP: {:.4f}, ".format(metric_dict['avg_mAP'])
+        logger.info(log_mertic_info)
+
+    def _clear_for_next_epoch(self):
         # clear for next epoch
         # cls
         self.cls_tp = np.zeros(self.overlap_len)
@@ -275,5 +274,140 @@ class SegmentationMetric(BaseMetric):
             "t_end": [],
             "label": []
         }
+
+    def accumulate(self):
+        """accumulate metrics when finished all iters.
+        """
+        raise NotImplementedError
+
+
+@METRIC.register
+class SegmentationMetric(BaseSegmentationMetric):
+    """
+    Test for Video Segmentation based model.
+    """
+
+    def __init__(self,
+                 data_size,
+                 batch_size,
+                 overlap,
+                 actions_map_file_path,
+                 log_interval=1,
+                 tolerance=5,
+                 boundary_threshold=0.7,
+                 max_proposal=100,
+                 tiou_thresholds=np.linspace(0.5, 0.95, 10)):
+        """prepare for metrics
+        """
+        super().__init__(data_size, batch_size, overlap, actions_map_file_path,
+                         log_interval, tolerance, boundary_threshold,
+                         max_proposal, tiou_thresholds)
+
+    def update(self, batch_id, data, outputs):
+        """update metrics during each iter
+        """
+        groundTruth = data[1]
+        vid = data[-1]
+
+        predicted = outputs['predict']
+        output_np = outputs['output_np']
+
+        outputs_np = predicted.numpy()
+        outputs_arr = output_np.numpy()[0, :]
+        gt_np = groundTruth.numpy()[0, :]
+
+        result = self._transform_model_result(outputs_np, gt_np, outputs_arr)
+        recog_content, gt_content, pred_detection, gt_detection = result
+        self._update_score(vid, recog_content, gt_content, pred_detection,
+                           gt_detection)
+
+    def accumulate(self):
+        """accumulate metrics when finished all iters.
+        """
+        metric_dict = self._compute_metrics()
+        self._log_metrics(metric_dict)
+        self._clear_for_next_epoch()
+
+        return metric_dict
+
+
+@METRIC.register
+class StreamSegmentationMetric(BaseSegmentationMetric):
+    """
+    Test for Video Segmentation based model.
+    """
+
+    def __init__(self,
+                 data_size,
+                 batch_size,
+                 overlap,
+                 actions_map_file_path,
+                 log_interval=1,
+                 tolerance=5,
+                 boundary_threshold=0.7,
+                 max_proposal=100,
+                 tiou_thresholds=np.linspace(0.5, 0.95, 10)):
+        """prepare for metrics
+        """
+        super().__init__(data_size, batch_size, overlap, actions_map_file_path,
+                         log_interval, tolerance, boundary_threshold,
+                         max_proposal, tiou_thresholds)
+
+        self.results_dict = {}
+
+    def update(self, batch_id, data, outputs):
+        """update metrics during each iter
+        """
+        groundTruth = data[1]
+        vid = data[-1]
+
+        # [N, T]
+        predicted = outputs['predict']
+        # [N, C, T]
+        output_np = outputs['output_np']
+
+        ignore = np.where(groundTruth == -100)
+
+        for b_id in range(len(vid)):
+            video_name = vid[b_id]
+            # reshape output
+            if ignore[1].shape[0] > 0 and ignore[0][0] == b_id:
+                outputs_np = predicted.numpy()[b_id, :ignore[1][0]]
+                outputs_arr = output_np.numpy()[b_id, :, :ignore[1][0]]
+                gt_np = groundTruth.numpy()[b_id, :ignore[1][0]]
+            else:
+                outputs_np = predicted.numpy()[b_id, :]
+                outputs_arr = output_np.numpy()[b_id, :]
+                gt_np = groundTruth.numpy()[b_id, :]
+            # log output
+            if video_name not in self.results_dict.keys():
+                self.results_dict[video_name] = {}
+                self.results_dict[video_name]['gt'] = [gt_np]
+                self.results_dict[video_name]['b_arr'] = [outputs_arr]
+                self.results_dict[video_name]['cls'] = [outputs_np]
+            else:
+                self.results_dict[video_name]['gt'].append(gt_np)
+                self.results_dict[video_name]['b_arr'].append(outputs_arr)
+                self.results_dict[video_name]['cls'].append(outputs_np)
+
+    def accumulate(self):
+        """accumulate metrics when finished all iters.
+        """
+        for vid in self.results_dict.keys():
+            outputs_np_list = self.results_dict[vid]['cls']
+            gt_np_list = self.results_dict[vid]['gt']
+            outputs_arr_list = self.results_dict[vid]['b_arr']
+            outputs_np = np.concatenate(outputs_np_list, axis=0)
+            gt_np = np.concatenate(gt_np_list, axis=0)
+            outputs_arr = np.concatenate(outputs_arr_list, axis=1)
+            result = self._transform_model_result(outputs_np, gt_np,
+                                                  outputs_arr)
+            recog_content, gt_content, pred_detection, gt_detection = result
+            self._update_score([vid], recog_content, gt_content, pred_detection,
+                               gt_detection)
+
+        metric_dict = self._compute_metrics()
+        self._log_metrics(metric_dict)
+        self._clear_for_next_epoch()
 
         return metric_dict
