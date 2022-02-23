@@ -33,11 +33,12 @@ from .ms_tcn_head import MSTCNHead
 from .asrf_head import ASRFHead
 from .tsm_extractor_head import TSMExtractorHead
 from .ete_head import ETEHead
+from .movinet_head import MoViNetHead
 
 __all__ = [
     'BaseHead', 'TSNHead', 'TSMHead', 'ppTSMHead', 'ppTSNHead', 'SlowFastHead',
     'AttentionLstmHead', 'TimeSformerHead', 'STGCNHead', 'TransNetV2Head',
     'I3DHead', 'SingleRoIExtractor3D', 'AVARoIHead', 'BBoxHeadAVA', 'AddsHead',
     'ppTimeSformerHead', 'CollaborativeEnsemblerMS', 'MSTCNHead', 'ASRFHead',
-    'TSMExtractorHead', 'ETEHead'
+    'TSMExtractorHead', 'ETEHead', 'MoViNetHead'
 ]
