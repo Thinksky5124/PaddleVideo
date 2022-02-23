@@ -119,7 +119,7 @@ OPTIMIZER: #OPTIMIZER field
     learning_rate: #Mandatory, the type of learning rate scheduler, associate to the 'paddlevideo/solver/'
         name: 'PiecewiseDecay'
         boundaries: [15, 35]
-        values: [0.001, 0.0005, 0.0001]  #1 cards * 8 batch size
+        values: [0.0001, 0.00005, 0.00001]  #1 cards * 8 batch size
     weight_decay:
         name: 'L2'
         value: 0.0001

@@ -6,10 +6,6 @@ from tqdm import tqdm
 background_class = ['None', 'background']
 
 
-def resample_clip(clip_dict, avg_sample_num, sample_ratio, bg_thres, bg_class):
-    pass
-
-
 def generate_clip_dict(vid, video_len, window_size, strike, end_overlap=True):
     clip_dict = {}
     vid_list = []

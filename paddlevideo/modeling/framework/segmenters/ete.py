@@ -82,6 +82,8 @@ class ETE(BaseSegmenter):
 
         loss_metrics = dict()
         loss_metrics['loss'] = loss
+        loss_metrics['loss_seg'] = seg_loss
+        loss_metrics['loss_cls'] = cls_loss
         loss_metrics['F1@0.50'] = self.head.get_F1_score(predicted, video_gt)
         return loss_metrics
 
@@ -102,10 +104,12 @@ class ETE(BaseSegmenter):
         predicted = paddle.argmax(output[-1], axis=1)
         predicted = paddle.squeeze(predicted)
 
-        outputs_dict = dict()
-        outputs_dict['loss'] = loss
-        outputs_dict['F1@0.50'] = self.head.get_F1_score(predicted, video_gt)
-        return outputs_dict
+        loss_metrics = dict()
+        loss_metrics['loss'] = loss
+        loss_metrics['loss_seg'] = seg_loss
+        loss_metrics['loss_cls'] = cls_loss
+        loss_metrics['F1@0.50'] = self.head.get_F1_score(predicted, video_gt)
+        return loss_metrics
 
     def test_step(self, data_batch):
         """Testing setp.
