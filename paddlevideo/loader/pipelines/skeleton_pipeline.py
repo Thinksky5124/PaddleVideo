@@ -247,7 +247,7 @@ class SketeonModalityTransform(object):
         window_size: int, sample windows size.
     """
 
-    def __init__(self, joint, bone, motion, graph='ntu_rgb_d'):
+    def __init__(self, bone, motion, joint=True, graph='ntu_rgb_d'):
 
         self.joint = joint
         self.bone = bone
