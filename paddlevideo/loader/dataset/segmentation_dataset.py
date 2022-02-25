@@ -83,7 +83,7 @@ class SegmentationDataset(BaseDataset):
         super().__init__(file_path, pipeline, **kwargs)
 
     def parse_file_paths(self, input_path):
-        file_ptr = open(self.file_path, 'r')
+        file_ptr = open(input_path, 'r')
         info = file_ptr.read().split('\n')[:-1]
         file_ptr.close()
         return info
@@ -148,4 +148,5 @@ class SegmentationDataset(BaseDataset):
                         format(results['filename'], ir))
                 idx = random.randint(0, len(self.info) - 1)
                 continue
-        return results['imgs'], results['labels'], results['video_name']
+        return results['imgs'], results['labels'], results[
+            'start_frame'], results['end_frame'], results['video_name']

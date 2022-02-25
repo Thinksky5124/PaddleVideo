@@ -50,6 +50,8 @@ class ETEHead(TSNHead):
         self.sample_rate = sample_rate
         self.sample_len = sample_len
 
+        self.epls = 1e-6
+
         # cls score
         self.overlap = 0.5
 
@@ -90,6 +92,8 @@ class ETEHead(TSNHead):
         stage_upsample = paddle.gather(stage_upsample,
                                        index=self.gather_index,
                                        axis=3)
+        # Todos:
+        # Interploate upsample
         if mode in ['train', 'val']:
             if self.dropout is not None:
                 x = self.dropout(feature)  # [N * num_seg, in_channels, 1, 1]
@@ -141,6 +145,15 @@ class ETEHead(TSNHead):
 
         return loss
 
+    def get_top_one_acc(self, scores, labels, valid_mode=False):
+        ce_y = labels[:, ::self.sample_rate]
+        ce_gt_onehot = F.one_hot(
+            ce_y, num_classes=self.num_classes)  # shape [T, num_classes]
+        smooth_label = paddle.sum(ce_gt_onehot, axis=1) / ce_gt_onehot.shape[1]
+        labels = paddle.argmax(smooth_label, axis=1).unsqueeze(1)
+        top1, top5 = self.get_acc(scores, labels, valid_mode)
+        return top1, top5
+
     def get_F1_score(self, predicted, groundTruth):
         # cls score
         correct = 0
@@ -151,6 +164,9 @@ class ETEHead(TSNHead):
         fn = 0
 
         ignore = np.where(groundTruth == -100)
+
+        if len(predicted.shape) < 2:
+            predicted = predicted.unsqueeze(0)
 
         for batch_size in range(predicted.shape[0]):
             # reshape output
@@ -179,19 +195,10 @@ class ETEHead(TSNHead):
             fn += fn1
 
         # cls metric
-        if tp + fp > 0.0:
-            precision = tp / float(tp + fp)
-        else:
-            precision = 1.0
-        if fp + fn > 0.0:
-            recall = tp / float(fp + fn)
-        else:
-            recall = 1.0
+        precision = tp / float(tp + fp + self.epls)
+        recall = tp / float(fp + fn + self.epls)
 
-        if precision + recall > 0.0:
-            f1 = 2.0 * (precision * recall) / (precision + recall)
-        else:
-            f1 = 0.0
+        f1 = 2.0 * (precision * recall) / (precision + recall + self.epls)
         f1 = np.nan_to_num(f1)
         return f1
 

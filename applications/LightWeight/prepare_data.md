@@ -53,10 +53,10 @@ python tools/export_model.py -c applications/LightWeight/config/split/50salads/t
                                 -o inference/TSM
 
 # use infer model to extract video feature
-python applications/LightWeight/extractor.py --input_file data/50salads/Videos \
-                           --output_path data/50salads/extract_features \
-                           --gt_path data/50salads/groundTruth \
-                           --config applications/LightWeight/config/split/50salads/tsm_extractor_50salads.yaml \
+python applications/LightWeight/extractor.py --input_file data/gtea/Videos \
+                           --output_path data/gtea/extract_features \
+                           --gt_path data/gtea/groundTruth \
+                           --config applications/LightWeight/config/split/gtea/tsm_extractor_gtea.yaml \
                            --model_file inference/TSM/TSM.pdmodel \
                            --params_file inference/TSM/TSM.pdiparams \
                            --use_gpu=True \
@@ -83,8 +83,8 @@ python applications/LightWeight/prepare_ete_data_list.py \
                         --split_list_path data/gtea/splits \
                         --label_path data/gtea/groundTruth \
                         --output_path data/gtea/split_frames \
-                        --window_size 60 \
-                        --strike 15
+                        --window_size 75 \
+                        --strike 30
 ```
 
 
@@ -94,6 +94,7 @@ python applications/LightWeight/prepare_ete_data_list.py \
 # single gpu
 export CUDA_VISIBLE_DEVICES=2
 python main.py  --validate -c applications/LightWeight/config/one_shot/gtea/ete_tsm_mstcn.yaml --seed 0
+python main.py  --validate -c applications/LightWeight/config/one_shot/gtea/tsm_gtea_crop_train.yaml --seed 0
 # multi gpu
 export CUDA_VISIBLE_DEVICES=2,3
 python -B -m paddle.distributed.launch --gpus="2,3"  --log_dir=./output main.py  --validate -c applications/LightWeight/config/one_shot/gtea/ete_tsm_mstcn.yaml --seed 0
@@ -104,4 +105,21 @@ python -B -m paddle.distributed.launch --gpus="2,3"  --log_dir=./output main.py 
 ## test model
 ```bash
 python main.py  --test -c applications/LightWeight/config/one_shot/gtea/ete_tsm_mstcn.yaml --weights=./output/ETEMSTCN/ETEMSTCN_best.pdparams
+```
+
+# infer model
+```bash
+# export infer model
+python tools/export_model.py -c applications/LightWeight/config/one_shot/gtea/ete_tsm_mstcn.yaml \
+                                -p output/ETEMSTCN/ETEMSTCN_best.pdparams \
+                                -o inference/ETEMSTCN
+
+# use infer model to extract video feature
+python3.7 tools/predict.py --input_file data/gtea/split_frames/test.split1.bundle \
+                           --config applications/LightWeight/config/one_shot/gtea/ete_tsm_mstcn.yaml \
+                           --model_file inference/ETEMSTCN/ETEMSTCN.pdmodel \
+                           --params_file inference/ETEMSTCN/ETEMSTCN.pdiparams \
+                           --use_gpu=True \
+                           --use_tensorrt=False \
+                           --batch_size 1
 ```

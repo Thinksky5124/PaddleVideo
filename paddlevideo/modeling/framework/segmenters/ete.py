@@ -47,7 +47,7 @@ class ETE(BaseSegmenter):
             feature = None
 
         if self.neck is not None:
-            neck_output = self.neck(feature, batch_size)
+            neck_output = self.neck(feature, num_segs)
         else:
             neck_output = None
 
@@ -75,7 +75,8 @@ class ETE(BaseSegmenter):
         for i in range(len(output)):
             seg_loss += self.head.segmentation_loss(output[i], video_gt)
         cls_loss = self.head.feature_extract_loss(scores, video_gt)
-        loss = self.seg_weight * seg_loss + self.cls_weight * cls_loss
+        # loss = self.seg_weight * seg_loss + self.cls_weight * cls_loss
+        loss = self.seg_weight * seg_loss
 
         predicted = paddle.argmax(output[-1], axis=1)
         predicted = paddle.squeeze(predicted)
@@ -85,6 +86,9 @@ class ETE(BaseSegmenter):
         loss_metrics['loss_seg'] = seg_loss
         loss_metrics['loss_cls'] = cls_loss
         loss_metrics['F1@0.50'] = self.head.get_F1_score(predicted, video_gt)
+        top1, top5 = self.head.get_top_one_acc(scores, video_gt)
+        loss_metrics['top_1'] = top1
+        loss_metrics['top_5'] = top5
         return loss_metrics
 
     def val_step(self, data_batch):
@@ -109,12 +113,15 @@ class ETE(BaseSegmenter):
         loss_metrics['loss_seg'] = seg_loss
         loss_metrics['loss_cls'] = cls_loss
         loss_metrics['F1@0.50'] = self.head.get_F1_score(predicted, video_gt)
+        top1, top5 = self.head.get_top_one_acc(scores, video_gt)
+        loss_metrics['top_1'] = top1
+        loss_metrics['top_5'] = top5
         return loss_metrics
 
     def test_step(self, data_batch):
         """Testing setp.
         """
-        imgs, _, _ = data_batch
+        imgs = data_batch[0]
 
         outputs_dict = dict()
         # call forward

@@ -53,7 +53,7 @@ class MSTCNNeck(BaseNeck):
 
         self.data_format = data_format
 
-    def forward(self, x, batch_size):
+    def forward(self, x, num_segs):
         """ MSTCN forward
         """
         results = {}
@@ -61,8 +61,9 @@ class MSTCNNeck(BaseNeck):
         x = self.avgpool2d(x)  # [N * num_segs, in_channels, 1, 1]
         results['feature'] = x
 
+        # x_seg = x.clone().detach()
         x = paddle.squeeze(x)  # [N * num_segs, in_channels]
-        x = paddle.reshape(x, shape=[batch_size, -1,
+        x = paddle.reshape(x, shape=[-1, num_segs,
                                      x.shape[-1]])  # [N, num_segs, in_channels]
         x_transpose = paddle.transpose(x,
                                        perm=[0, 2,
