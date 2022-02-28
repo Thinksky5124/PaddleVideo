@@ -25,7 +25,7 @@ from .registry import (BACKBONES, DETECTORS, HEADS, LOCALIZERS, LOSSES,
                        PARTITIONERS, RECOGNIZERS, ROI_EXTRACTORS)
 from .samplers import RandomSampler
 from .weight_init import kaiming_normal_, trunc_normal_, weight_init_
-from .necks import BaseNeck, MSTCNNeck
+from .necks import BaseNeck, ETENeck
 
 __all__ = [
     'BACKBONES', 'HEADS', 'RECOGNIZERS', 'LOCALIZERS', 'PARTITIONERS', 'LOSSES',
@@ -34,5 +34,5 @@ __all__ = [
     'Recognizer2d', 'CrossEntropyLoss', 'ROI_EXTRACTORS',
     'SingleRoIExtractor3D', 'AVARoIHead', 'BBoxHeadAVA', 'MaxIoUAssignerAVA',
     'RandomSampler', 'DETECTORS', 'kaiming_normal_', 'trunc_normal_',
-    'weight_init_', 'BaseNeck', 'MSTCNNeck'
+    'weight_init_', 'BaseNeck', 'ETENeck'
 ]

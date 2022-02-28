@@ -13,6 +13,6 @@
 # limitations under the License.
 
 from .base import BaseNeck
-from .ms_tcn_neck import MSTCNNeck
+from .ete_neck import ETENeck
 
-__all__ = ['BaseNeck', 'MSTCNNeck']
+__all__ = ['BaseNeck', 'ETENeck']

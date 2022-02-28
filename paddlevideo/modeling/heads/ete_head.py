@@ -16,7 +16,7 @@ import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
 import numpy as np
-
+import copy
 from paddle import ParamAttr
 from paddle.nn import Linear
 from paddle.regularizer import L2Decay
@@ -24,21 +24,28 @@ from .tsn_head import TSNHead
 from ..registry import HEADS
 from ..weight_init import weight_init_
 
+from ..backbones.ms_tcn import calculate_gain, KaimingUniform_like_torch
+from ..backbones.ms_tcn import init_bias, SingleStageModel, DilatedResidualLayer
+
 
 @HEADS.register()
 class ETEHead(TSNHead):
 
     def __init__(self,
                  num_classes,
-                 in_channels,
+                 cls_in_channels,
+                 seg_in_channels,
                  sample_len,
+                 num_stages,
+                 num_layers,
+                 num_f_maps,
                  sample_rate=2,
                  drop_ratio=0.5,
                  std=0.001,
                  data_format="NCHW",
                  **kwargs):
         super().__init__(num_classes,
-                         in_channels,
+                         in_channels=cls_in_channels,
                          drop_ratio=drop_ratio,
                          std=std,
                          data_format=data_format,
@@ -49,13 +56,23 @@ class ETEHead(TSNHead):
         self.num_classes = num_classes
         self.sample_rate = sample_rate
         self.sample_len = sample_len
+        self.cls_in_channels = cls_in_channels
+        self.seg_in_channels = seg_in_channels
 
         self.epls = 1e-6
 
         # cls score
         self.overlap = 0.5
 
-        self.fc = Linear(self.in_channels,
+        self.stage1 = SingleStageModel(num_layers, num_f_maps,
+                                       self.seg_in_channels, num_classes)
+        self.stages = nn.LayerList([
+            copy.deepcopy(
+                SingleStageModel(num_layers, num_f_maps, num_classes,
+                                 num_classes)) for s in range(num_stages - 1)
+        ])
+
+        self.fc = Linear(self.cls_in_channels,
                          self.num_classes,
                          weight_attr=ParamAttr(learning_rate=5.0,
                                                regularizer=L2Decay(1e-4)),
@@ -73,46 +90,54 @@ class ETEHead(TSNHead):
         if self.sample_len % self.sample_rate != 0:
             raise NotImplementedError
 
-        self.gather_index = paddle.zeros(shape=[self.sample_len], dtype='int32')
-        repeat_gap = int(self.sample_len // self.sample_rate)
-        for i in range(repeat_gap):
-            for j in range(self.sample_rate):
-                self.gather_index[i * self.sample_rate + j] = i + j * repeat_gap
-
     def init_weights(self):
         """Initiate the FC layer parameters"""
         weight_init_(self.fc, 'Normal', 'fc_0.w_0', 'fc_0.b_0', std=self.stdv)
+        for layer in self.sublayers():
+            if isinstance(layer, nn.Conv1D):
+                layer.weight.set_value(
+                    KaimingUniform_like_torch(layer.weight).astype('float32'))
+                if layer.bias is not None:
+                    layer.bias.set_value(
+                        init_bias(layer.weight, layer.bias).astype('float32'))
 
-    def forward(self, stage, feature, num_seg, mode):
+    def forward(self, seg_feature, cls_feature, num_segs, mode):
         """MS-TCN no head
         """
-        # stage shape [Stage_num N C T]
-        stage_upsample = paddle.tile(stage,
-                                     repeat_times=[1, 1, 1, self.sample_rate])
-        stage_upsample = paddle.gather(stage_upsample,
-                                       index=self.gather_index,
-                                       axis=3)
-        # Todos:
+        # seg_feature [N, in_channels, num_segs]
         # Interploate upsample
+        seg_x_upsample = F.interpolate(x=seg_feature,
+                                       scale_factor=[1, self.sample_rate],
+                                       mode="bilinear").squeeze(1)
+
+        out = self.stage1(seg_x_upsample)
+        outputs = out.unsqueeze(0)
+        for s in self.stages:
+            out = s(F.softmax(out, axis=1))
+            outputs = paddle.concat((outputs, out.unsqueeze(0)), axis=0)
+        seg_score = outputs
+
+        # cls_feature.shape = [N * num_segs, in_channels, 1, 1]
         if mode in ['train', 'val']:
             if self.dropout is not None:
-                x = self.dropout(feature)  # [N * num_seg, in_channels, 1, 1]
+                cls_x = self.dropout(
+                    cls_feature)  # [N * num_seg, in_channels, 1, 1]
 
             if self.data_format == 'NCHW':
-                x = paddle.reshape(x, x.shape[:2])
+                cls_x = paddle.reshape(cls_x, cls_x.shape[:2])
             else:
-                x = paddle.reshape(x, x.shape[::3])
-            score = self.fc(x)  # [N * num_seg, num_class]
+                cls_x = paddle.reshape(cls_x, cls_x.shape[::3])
+            score = self.fc(cls_x)  # [N * num_seg, num_class]
             score = paddle.reshape(
-                score, [-1, num_seg, score.shape[1]])  # [N, num_seg, num_class]
+                score,
+                [-1, num_segs, score.shape[1]])  # [N, num_seg, num_class]
             score = paddle.mean(score, axis=1)  # [N, num_class]
-            score = paddle.reshape(score,
-                                   shape=[-1,
-                                          self.num_classes])  # [N, num_class]
+            cls_score = paddle.reshape(score, shape=[-1, self.num_classes
+                                                     ])  # [N, num_class]
             # score = F.softmax(score)  #NOTE remove
-            return stage_upsample, score
+            return seg_score, cls_score
         else:
-            return stage_upsample
+            return seg_score
 
     def feature_extract_loss(self, scores, video_gt):
         """calculate loss

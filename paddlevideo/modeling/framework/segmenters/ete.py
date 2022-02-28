@@ -47,17 +47,13 @@ class ETE(BaseSegmenter):
             feature = None
 
         if self.neck is not None:
-            neck_output = self.neck(feature, num_segs)
+            seg_feature, cls_feature = self.neck(feature, num_segs)
         else:
-            neck_output = None
-
-        if neck_output is not None:
-            neck_output_feature = neck_output['feature']
-            neck_output_stage = neck_output['stage']
+            seg_feature = None
+            cls_feature = None
 
         if self.head is not None:
-            headoutputs = self.head(neck_output_stage, neck_output_feature,
-                                    num_segs, mode)
+            headoutputs = self.head(seg_feature, cls_feature, num_segs, mode)
         else:
             headoutputs = None
 
@@ -75,8 +71,7 @@ class ETE(BaseSegmenter):
         for i in range(len(output)):
             seg_loss += self.head.segmentation_loss(output[i], video_gt)
         cls_loss = self.head.feature_extract_loss(scores, video_gt)
-        # loss = self.seg_weight * seg_loss + self.cls_weight * cls_loss
-        loss = self.seg_weight * seg_loss
+        loss = self.seg_weight * seg_loss + self.cls_weight * cls_loss
 
         predicted = paddle.argmax(output[-1], axis=1)
         predicted = paddle.squeeze(predicted)
