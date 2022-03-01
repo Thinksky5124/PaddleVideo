@@ -16,7 +16,7 @@ MODEL: #MODEL field
         num_stages: 3 #Optional, the number of stages.
         num_layers: 5 # Optional, the number of layers in each stage.
         num_f_maps: 64 #Optional, the number of channels in each layers.
-        seg_in_channels: 4096 #Optional, the number of channels in input feature.
+        seg_in_channels: 2048 #Optional, the number of channels in input feature.
         cls_in_channels: 2048 #Optional, the number of channels in input feature.
         sample_rate: 4
         sample_len: 60

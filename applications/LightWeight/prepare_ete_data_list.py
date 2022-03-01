@@ -1,12 +1,81 @@
 import argparse
 import os
+import pandas as pd
 
 from tqdm import tqdm
 
 background_class = ['None', 'background']
 
+def generate_clip_dict(vid, gt_content, video_len, window_size, strike, end_overlap=True, mode='slide_windows'):
+    if mode == 'slide_windows':
+        return generate_slide_windows_clip_dict(vid, video_len, window_size, strike, end_overlap=end_overlap)
+    elif mode == 'action_clip':
+        return generate_action_clip_dict(vid, gt_content)
+    else:
+        raise NotImplementedError
 
-def generate_clip_dict(vid, video_len, window_size, strike, end_overlap=True):
+def resample_background(video_clip_dict, neg_num):
+    bg_dict = {'bg_vid': video_clip_dict['bg_vid'], 'bg_start_frame': video_clip_dict['bg_start_frame'], 'bg_end_frame':video_clip_dict['bg_end_frame']}
+
+    clip = pd.DataFrame(bg_dict)
+    clip = clip.sample(frac=1)
+    clips_dict_from_pd = clip.to_dict()
+    clips_dict = {}
+    vid_list = list(clips_dict_from_pd['bg_vid'].values())[:neg_num]
+    start_frame_list = list(clips_dict_from_pd['bg_start_frame'].values())[:neg_num]
+    end_frame_list = list(clips_dict_from_pd['bg_end_frame'].values())[:neg_num]
+
+    clips_dict['vid'] = video_clip_dict['vid'] + vid_list
+    clips_dict['start_frame'] = video_clip_dict['start_frame'] + start_frame_list
+    clips_dict['end_frame'] = video_clip_dict['end_frame'] + end_frame_list
+    return clips_dict
+
+def get_labels_start_end_time(frame_wise_labels, bg_class=background_class):
+    labels = []
+    starts = []
+    ends = []
+    bg_starts = []
+    bg_ends = []
+
+    last_label = frame_wise_labels[0]
+    if frame_wise_labels[0] not in bg_class:
+        labels.append(frame_wise_labels[0])
+        starts.append(0)
+    else:
+        bg_starts.append(0)
+    for i in range(len(frame_wise_labels)):
+        if frame_wise_labels[i] != last_label:
+            if frame_wise_labels[i] not in bg_class:
+                labels.append(frame_wise_labels[i])
+                starts.append(i)
+            else:
+                bg_starts.append(i)
+            if last_label not in bg_class:
+                ends.append(i)
+            else:
+                bg_ends.append(i)
+            last_label = frame_wise_labels[i]
+    if last_label not in bg_class:
+        ends.append(i + 1)
+    else:
+        bg_ends.append(i + 1)
+    return labels, starts, ends, bg_starts, bg_ends
+
+def generate_action_clip_dict(vid, gt_content):
+    clip_dict = {}
+
+    _, starts, ends, bg_starts, bg_ends = get_labels_start_end_time(gt_content)
+
+    clip_dict['vid'] = [vid] * len(starts)
+    clip_dict['start_frame'] = starts
+    clip_dict['end_frame'] = ends
+    
+    clip_dict['bg_vid'] = [vid] * len(bg_starts)
+    clip_dict['bg_start_frame'] = bg_starts
+    clip_dict['bg_end_frame'] = bg_ends
+    return clip_dict
+
+def generate_slide_windows_clip_dict(vid, video_len, window_size, strike, end_overlap=True):
     clip_dict = {}
     vid_list = []
     start_frame_list = []
@@ -71,6 +140,19 @@ def get_arguments():
         default=True,
         help="end of video can overlap.",
     )
+    parser.add_argument(
+        "--split_mode",
+        type=str,
+        default='slide_windows',
+        help="end of video can overlap.",
+    )
+    parser.add_argument(
+        "--neg_num",
+        type=int,
+        default=60,
+        help="end of video can overlap.",
+    )
+
     return parser.parse_args()
 
 
@@ -119,16 +201,21 @@ def main():
             video_len = len(content)
             # split video to clip dcit
             clip_dict = generate_clip_dict(video_name,
+                                           content,
                                            video_len,
                                            window_size=args.window_size,
                                            strike=args.strike,
-                                           end_overlap=args.end_overlap)
+                                           end_overlap=args.end_overlap,
+                                           mode=args.split_mode)
             for name, value in clip_dict.items():
                 if name not in total_clip_dict.keys():
                     total_clip_dict[name] = []
                 else:
                     total_clip_dict[
                         name] = total_clip_dict[name] + clip_dict[name]
+
+        if args.split_mode == 'action_clip':
+            total_clip_dict = resample_background(total_clip_dict, neg_num=args.neg_num)
 
         recog_content = []
         for vid, start_frame, end_frame in zip(total_clip_dict['vid'],
@@ -159,10 +246,12 @@ def main():
             video_len = len(content)
             # split video to clip dict
             clip_dict = generate_clip_dict(video_name,
+                                           content,
                                            video_len,
                                            window_size=args.window_size,
                                            strike=args.window_size,
-                                           end_overlap=False)
+                                           end_overlap=False,
+                                           mode='slide_windows')
             for name, value in clip_dict.items():
                 if name not in total_clip_dict.keys():
                     total_clip_dict[name] = []

@@ -94,20 +94,33 @@ class VideoStramSampler(Sampler):
         end_frame = results['end_frame']
         frames_idx = []
 
-        if start_frame > frames_len:
-            start_frame = frames_len
-        if end_frame > frames_len:
-            end_frame = frames_len
+        if self.valid_mode:
+            if start_frame > frames_len:
+                start_frame = frames_len
+            if end_frame > frames_len:
+                end_frame = frames_len
 
-        if results['format'] == 'video':
-            frames_idx = list(range(start_frame, end_frame, self.sample_rate))
+            if results['format'] == 'video':
+                frames_idx = list(range(start_frame, end_frame, self.sample_rate))
+            else:
+                raise NotImplementedError
+
+            if self.with_label:
+                classes = results['labels']
+                labels = classes[start_frame:end_frame]
+                results['labels'] = copy.deepcopy(labels)
+
         else:
-            raise NotImplementedError
+            frames_idx = list(np.floor(np.linspace(start_frame, end_frame, num = self.sample_len)))[::self.sample_rate]
+            
+            if self.with_label:
+                classes = results['labels']
+                labels = classes[start_frame:end_frame]
 
-        if self.with_label:
-            classes = results['labels']
-            labels = classes[start_frame:end_frame]
-            results['labels'] = copy.deepcopy(labels)
+                if len(labels) != self.sample_len:
+                    labels = np.repeat(labels[0], self.sample_len)
+
+                results['labels'] = copy.deepcopy(labels)
 
         results = self._get(frames_idx, results)
 
