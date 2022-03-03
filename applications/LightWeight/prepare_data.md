@@ -83,8 +83,8 @@ python applications/LightWeight/prepare_ete_data_list.py \
                         --split_list_path data/gtea/splits \
                         --label_path data/gtea/groundTruth \
                         --output_path data/gtea/split_frames \
-                        --window_size 60 \
-                        --strike 15
+                        --window_size 300 \
+                        --strike 60
 ```
 
 
@@ -92,7 +92,7 @@ python applications/LightWeight/prepare_ete_data_list.py \
 ```bash
 # gtea
 # single gpu
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=1
 python main.py  --validate -c applications/LightWeight/config/one_shot/gtea/ete_tsm_mstcn.yaml --seed 0
 python main.py  --validate -c applications/LightWeight/config/one_shot/gtea/tsm_gtea_crop_train.yaml --seed 0
 # multi gpu

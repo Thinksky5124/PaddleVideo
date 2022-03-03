@@ -85,8 +85,7 @@ class ETENeck(BaseNeck):
         #     # memeroy
         #     _, (self.h, self.c) = self.memery_unit(seg_x, (self.h, self.c))
 
-        seg_feature = paddle.transpose(seg_feature, perm=[0, 2, 1]).unsqueeze(
-            1)  # [N, in_channels, num_segs]
+        seg_feature = paddle.transpose(seg_feature, perm=[0, 2, 1]) # [N, in_channels, num_segs]
 
         return seg_feature, x
 
