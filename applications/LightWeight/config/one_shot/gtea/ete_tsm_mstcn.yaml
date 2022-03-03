@@ -26,8 +26,9 @@ MODEL: #MODEL field
     cls_weight: 1.0
 
 DATASET: #DATASET field
-    batch_size: 8 #Mandatory, bacth size
-    num_workers: 4 #Mandatory, XXX the number of subprocess on each GPU.
+    batch_size: 1 #Mandatory, bacth size
+    num_workers: 1 #Mandatory, XXX the number of subprocess on each GPU.
+    shuffle_valid: False
     train:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
