@@ -32,7 +32,11 @@ class ETE(BaseSegmenter):
         self.seg_weight = seg_weight
         self.cls_weight = cls_weight
 
-    def forward_net(self, imgs, mode):
+        # clear flag
+        self.last_vid = None
+        self.memery_buffer = None
+
+    def forward_net(self, imgs, vid, mode):
         """Define how the model is going to train, from input to output.
         """
         # NOTE: As the num_segs is an attribute of dataset phase, and didn't pass to build_head phase, should obtain it from imgs(paddle.Tensor) now, then call self.head method.
@@ -47,7 +51,8 @@ class ETE(BaseSegmenter):
             feature = None
 
         if self.neck is not None:
-            seg_feature, cls_feature = self.neck(feature, num_segs)
+            seg_feature, cls_feature, memery_buffer = self.neck(
+                feature, num_segs, self.memery_buffer)
         else:
             seg_feature = None
             cls_feature = None
@@ -57,15 +62,28 @@ class ETE(BaseSegmenter):
         else:
             headoutputs = None
 
+        self._store_memery_buffer(vid, memery_buffer)
         return headoutputs
+
+    def _store_memery_buffer(self, vid, memeroy_buffer):
+        if self.last_vid is None:
+            self.last_vid = vid
+            self.memery_buffer = memeroy_buffer
+        elif self.last_vid == vid:
+            self.memery_buffer = memeroy_buffer
+        elif self.memery_buffer != vid:
+            self.memery_buffer = None
+            self.last_vid = vid
+        else:
+            raise NotImplementedError
 
     def train_step(self, data_batch):
         """Training step.
         """
-        imgs, video_gt, _ = data_batch
+        imgs, video_gt, vid = data_batch
 
         # call forward
-        headoutputs = self.forward_net(imgs, 'train')
+        headoutputs = self.forward_net(imgs, vid, 'train')
         output, scores = headoutputs
         seg_loss = 0.
         for i in range(len(output)):
@@ -89,10 +107,10 @@ class ETE(BaseSegmenter):
     def val_step(self, data_batch):
         """Validating setp.
         """
-        imgs, video_gt, _ = data_batch
+        imgs, video_gt, vid = data_batch
 
         # call forward
-        headoutputs = self.forward_net(imgs, 'val')
+        headoutputs = self.forward_net(imgs, vid, 'val')
         output, scores = headoutputs
         seg_loss = 0.
         for i in range(len(output)):
@@ -117,10 +135,11 @@ class ETE(BaseSegmenter):
         """Testing setp.
         """
         imgs = data_batch[0]
+        vid = data_batch[-1]
 
         outputs_dict = dict()
         # call forward
-        headoutputs = self.forward_net(imgs, 'test')
+        headoutputs = self.forward_net(imgs, vid, 'test')
         output = headoutputs
         predicted = paddle.argmax(output[-1], axis=1)
         predicted = paddle.squeeze(predicted)
@@ -132,9 +151,10 @@ class ETE(BaseSegmenter):
         """Infering setp.
         """
         imgs = data_batch[0]
+        vid = data_batch[-1]
 
         # call forward
-        headoutputs = self.forward_net(imgs, 'infer')
+        headoutputs = self.forward_net(imgs, vid, 'infer')
         output = headoutputs
         predicted = paddle.argmax(output[-1], axis=1)
         predicted = paddle.squeeze(predicted)

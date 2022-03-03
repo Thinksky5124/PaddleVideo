@@ -107,8 +107,9 @@ class ETEHead(TSNHead):
         # seg_feature [N, in_channels, num_segs]
         # Interploate upsample
         seg_x_upsample = F.interpolate(x=seg_feature,
-                                       scale_factor=[1, self.sample_rate],
-                                       mode="bilinear").squeeze(1)
+                                       scale_factor=self.sample_rate,
+                                       mode="linear",
+                                       data_format='NCW')
 
         out = self.stage1(seg_x_upsample)
         outputs = out.unsqueeze(0)

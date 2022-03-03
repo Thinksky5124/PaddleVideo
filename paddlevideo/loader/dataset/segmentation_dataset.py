@@ -22,6 +22,7 @@ import cv2
 from ..registry import DATASETS
 from .base import BaseDataset
 from ...utils import get_logger
+from paddle.io import Dataset
 
 logger = get_logger("paddlevideo")
 
@@ -63,10 +64,8 @@ class SegmentationDataset(BaseDataset):
                  gt_path,
                  pipeline,
                  actions_map_file_path,
-                 num_retries=5,
                  suffix='',
                  **kwargs):
-        self.num_retries = num_retries
         self.suffix = suffix
         self.videos_path = videos_path
         self.gt_path = gt_path
@@ -119,34 +118,14 @@ class SegmentationDataset(BaseDataset):
     def prepare_train(self, idx):
         """TRAIN & VALID. Prepare the data for training/valid given the index."""
         #Try to catch Exception caused by reading corrupted video file
-        for ir in range(self.num_retries):
-            try:
-                results = copy.deepcopy(self.info[idx])
-                results = self.pipeline(results)
+        results = copy.deepcopy(self.info[idx])
+        results = self.pipeline(results)
 
-            except Exception as e:
-                #logger.info(e)
-                if ir < self.num_retries - 1:
-                    logger.info(
-                        "Error when loading {}, have {} trys, will try again".
-                        format(results['filename'], ir))
-                idx = random.randint(0, len(self.info) - 1)
-                continue
         return results['imgs'], results['labels'], results['video_name']
 
     def prepare_test(self, idx):
-        for ir in range(self.num_retries):
-            try:
-                results = copy.deepcopy(self.info[idx])
-                results = self.pipeline(results)
+        results = copy.deepcopy(self.info[idx])
+        results = self.pipeline(results)
 
-            except Exception as e:
-                #logger.info(e)
-                if ir < self.num_retries - 1:
-                    logger.info(
-                        "Error when loading {}, have {} trys, will try again".
-                        format(results['filename'], ir))
-                idx = random.randint(0, len(self.info) - 1)
-                continue
         return results['imgs'], results['labels'], results[
             'start_frame'], results['end_frame'], results['video_name']

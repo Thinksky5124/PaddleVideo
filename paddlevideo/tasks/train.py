@@ -106,7 +106,9 @@ def train_model(cfg,
     train_dataloader_setting = dict(batch_size=batch_size,
                                     num_workers=num_workers,
                                     collate_fn_cfg=cfg.get('MIX', None),
-                                    places=places)
+                                    places=places,
+                                    shuffle=cfg.DATASET.get(
+                                        'shuffle_valid', True))
 
     train_loader = build_dataloader(train_dataset, **train_dataloader_setting)
 

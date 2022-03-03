@@ -62,8 +62,9 @@ class ETENeck(BaseNeck):
         # x.shape = [N * num_segs, in_channels, 1, 1]
 
         seg_x = paddle.squeeze(x)  # [N * num_segs, in_channels]
-        seg_feature = paddle.reshape(seg_x, shape=[-1, num_segs, seg_x.shape[-1]
-                                             ])  # [N, num_segs, in_channels]
+        seg_feature = paddle.reshape(seg_x,
+                                     shape=[-1, num_segs, seg_x.shape[-1]
+                                            ])  # [N, num_segs, in_channels]
 
         # # Todos: new video flash value
         # # Design: backward require
@@ -85,8 +86,9 @@ class ETENeck(BaseNeck):
         #     # memeroy
         #     _, (self.h, self.c) = self.memery_unit(seg_x, (self.h, self.c))
 
-        seg_feature = paddle.transpose(seg_feature, perm=[0, 2, 1]).unsqueeze(
-            1)  # [N, in_channels, num_segs]
+        seg_feature = paddle.transpose(seg_feature,
+                                       perm=[0, 2,
+                                             1])  # [N, in_channels, num_segs]
 
         return seg_feature, x
 
