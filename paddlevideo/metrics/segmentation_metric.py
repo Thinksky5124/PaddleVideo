@@ -309,12 +309,19 @@ class SegmentationMetric(BaseSegmentationMetric):
         groundTruth = data[1]
         vid = data[-1]
 
+        # [N, T]
         predicted = outputs['predict']
+        # [N, C, T]
         output_np = outputs['output_np']
 
-        outputs_np = predicted.numpy()
-        outputs_arr = output_np.numpy()[0, :]
-        gt_np = groundTruth.numpy()[0, :]
+        if type(predicted) is not np.ndarray:
+            outputs_np = predicted.numpy()
+            outputs_arr = output_np.numpy()[0, :]
+            gt_np = groundTruth.numpy()[0, :]
+        else:
+            outputs_np = predicted
+            outputs_arr = output_np[0, :]
+            gt_np = groundTruth[0, :]
 
         result = self._transform_model_result(outputs_np, gt_np, outputs_arr)
         recog_content, gt_content, pred_detection, gt_detection = result

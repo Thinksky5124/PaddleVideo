@@ -10,6 +10,7 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
+import numpy as np
 from ...registry import SEGMENTERS
 from .base import BaseSegmenter
 
@@ -32,17 +33,19 @@ class ETE(BaseSegmenter):
         self.seg_weight = seg_weight
         self.cls_weight = cls_weight
 
-        # clear flag
-        self.last_vid = None
+        self.num_segs = backbone.num_seg
+        self.sliding_strike = neck.sliding_strike
+        self.clip_buffer_num = neck.clip_buffer_num
+        self.sample_rate = head.sample_rate
+        self.num_classes = head.num_classes
+
         self.memery_buffer = None
 
-    def forward_net(self, imgs, vid, mode):
+    def forward_net(self, imgs, start_frame, end_frame, mode):
+        # step 2 extract feature
         """Define how the model is going to train, from input to output.
         """
-        # NOTE: As the num_segs is an attribute of dataset phase, and didn't pass to build_head phase, should obtain it from imgs(paddle.Tensor) now, then call self.head method.
-        batch_size = imgs.shape[0]
-        num_segs = imgs.shape[
-            1]  # imgs.shape=[N,T,C,H,W], for most commonly case
+        # imgs.shape=[N,T,C,H,W], for most commonly case
         imgs = paddle.reshape_(imgs, [-1] + list(imgs.shape[2:]))
 
         if self.backbone is not None:
@@ -50,102 +53,209 @@ class ETE(BaseSegmenter):
         else:
             feature = None
 
+        # step 3 extract memery feature
         if self.neck is not None:
             seg_feature, cls_feature, memery_buffer = self.neck(
-                feature, num_segs, self.memery_buffer)
+                feature, self.memery_buffer, self.num_segs, start_frame, end_frame)
         else:
             seg_feature = None
             cls_feature = None
 
+        # step 4 store memery buffer
+        self.memery_buffer = memery_buffer
+
+        # step 5 segmentation
         if self.head is not None:
-            headoutputs = self.head(seg_feature, cls_feature, num_segs, mode)
+            headoutputs = self.head(seg_feature, cls_feature, self.num_segs, mode)
         else:
             headoutputs = None
 
-        self._store_memery_buffer(vid, memery_buffer)
         return headoutputs
-
-    def _store_memery_buffer(self, vid, memeroy_buffer):
-        if self.last_vid is None:
-            self.last_vid = vid
-            self.memery_buffer = memeroy_buffer
-        elif self.last_vid == vid:
-            self.memery_buffer = memeroy_buffer
-        elif self.memery_buffer != vid:
-            self.memery_buffer = None
-            self.last_vid = vid
-        else:
-            raise NotImplementedError
 
     def train_step(self, data_batch):
         """Training step.
         """
-        imgs, video_gt, vid = data_batch
+        imgs_np = data_batch[0].numpy()
+        video_gt = data_batch[1]
 
-        # call forward
-        headoutputs = self.forward_net(imgs, vid, 'train')
-        output, scores = headoutputs
-        seg_loss = 0.
-        for i in range(len(output)):
-            seg_loss += self.head.segmentation_loss(output[i], video_gt)
-        cls_loss = self.head.feature_extract_loss(scores, video_gt)
-        loss = self.seg_weight * seg_loss + self.cls_weight * cls_loss
+        # initilaze output result
+        pred_score = np.zeros((imgs_np.shape[0], self.num_classes, imgs_np.shape[1] * self.sample_rate))
 
-        predicted = paddle.argmax(output[-1], axis=1)
+        total_seg_loss = 0.
+        total_cls_loss = 0.
+        total_top1 = 0.
+        total_top5 = 0.
+        sliding_cnt = 0
+        # sliding segmentation
+        for start_frame in range(0, imgs_np.shape[1], self.sliding_strike):
+            # step 1 sliding sample
+            end_frame = start_frame + self.num_segs
+            if end_frame > imgs_np.shape[1]:
+                end_frame = imgs_np.shape[1]
+            imgs = paddle.to_tensor(imgs_np[:, start_frame:end_frame, :])
+            clip_gt = video_gt[:, start_frame:end_frame]
+
+            # call forward
+            headoutputs = self.forward_net(imgs, start_frame, end_frame, 'train')
+
+            output, scores = headoutputs
+            # step 6 post precessing
+            refine_start_frame = start_frame - (self.clip_buffer_num * self.num_segs)
+            if refine_start_frame < 0:
+                refine_start_frame = 0
+            valid_len = end_frame - refine_start_frame
+            pred_score[:, :, refine_start_frame:end_frame] = output[-1, :, :, -valid_len:].clone().detach()
+
+            seg_loss = 0.
+            for i in range(len(output)):
+                seg_loss += self.head.segmentation_loss(output[i], clip_gt)
+
+            cls_loss = self.head.feature_extract_loss(scores, clip_gt)
+
+            top1, top5 = self.head.get_top_one_acc(scores, clip_gt)
+
+            # log loss
+            total_seg_loss = total_seg_loss + seg_loss
+            total_cls_loss = total_cls_loss + cls_loss
+            total_top1 = total_top1 + top1
+            total_top5 = total_top5 + top5
+            sliding_cnt = sliding_cnt + 1
+        
+        # mean loss
+        total_cls_loss = total_cls_loss / sliding_cnt
+        total_seg_loss = total_seg_loss / sliding_cnt
+        total_top1 = total_top1 / sliding_cnt
+        total_top5 = total_top5 / sliding_cnt
+        loss = self.seg_weight * total_seg_loss + self.cls_weight * total_cls_loss
+
+        # step last clear memery buffer
+        self.memery_buffer = None
+
+
+        predicted = paddle.argmax(pred_score, axis=1)
         predicted = paddle.squeeze(predicted)
 
         loss_metrics = dict()
         loss_metrics['loss'] = loss
-        loss_metrics['loss_seg'] = seg_loss
-        loss_metrics['loss_cls'] = cls_loss
+        loss_metrics['loss_seg'] = total_seg_loss
+        loss_metrics['loss_cls'] = total_cls_loss
         loss_metrics['F1@0.50'] = self.head.get_F1_score(predicted, video_gt)
-        top1, top5 = self.head.get_top_one_acc(scores, video_gt)
-        loss_metrics['top_1'] = top1
-        loss_metrics['top_5'] = top5
+        
+        loss_metrics['top_1'] = total_top1
+        loss_metrics['top_5'] = total_top5
         return loss_metrics
 
     def val_step(self, data_batch):
         """Validating setp.
         """
-        imgs, video_gt, vid = data_batch
+        imgs_np = data_batch[0].numpy()
+        video_gt = data_batch[1]
 
-        # call forward
-        headoutputs = self.forward_net(imgs, vid, 'val')
-        output, scores = headoutputs
-        seg_loss = 0.
-        for i in range(len(output)):
-            seg_loss += self.head.segmentation_loss(output[i], video_gt)
-        cls_loss = self.head.feature_extract_loss(scores, video_gt)
-        loss = self.seg_weight * seg_loss + self.cls_weight * cls_loss
+        # initilaze output result
+        pred_score = np.zeros((imgs_np.shape[0], self.num_classes, imgs_np.shape[1] * self.sample_rate))
 
-        predicted = paddle.argmax(output[-1], axis=1)
+        total_seg_loss = 0.
+        total_cls_loss = 0.
+        total_top1 = 0.
+        total_top5 = 0.
+        sliding_cnt = 0
+        # sliding segmentation
+        for start_frame in range(0, imgs_np.shape[1], self.sliding_strike):
+            # step 1 sliding sample
+            end_frame = start_frame + self.num_segs
+            if end_frame > imgs_np.shape[1]:
+                end_frame = imgs_np.shape[1]
+            imgs = paddle.to_tensor(imgs_np[:, start_frame:end_frame, :])
+            clip_gt = video_gt[:, start_frame:end_frame]
+
+            # call forward
+            headoutputs = self.forward_net(imgs, start_frame, end_frame, 'train')
+
+            output, scores = headoutputs
+            # step 6 post precessing
+            refine_start_frame = start_frame - (self.clip_buffer_num * self.num_segs)
+            if refine_start_frame < 0:
+                refine_start_frame = 0
+            valid_len = end_frame - refine_start_frame
+            pred_score[:, :, refine_start_frame:end_frame] = output[-1, :, :, -valid_len:].clone().detach()
+
+            seg_loss = 0.
+            for i in range(len(output)):
+                seg_loss += self.head.segmentation_loss(output[i], clip_gt)
+
+            cls_loss = self.head.feature_extract_loss(scores, clip_gt)
+
+            top1, top5 = self.head.get_top_one_acc(scores, clip_gt)
+
+            # log loss
+            total_seg_loss = total_seg_loss + seg_loss
+            total_cls_loss = total_cls_loss + cls_loss
+            total_top1 = total_top1 + top1
+            total_top5 = total_top5 + top5
+            sliding_cnt = sliding_cnt + 1
+        
+        # mean loss
+        total_cls_loss = total_cls_loss / sliding_cnt
+        total_seg_loss = total_seg_loss / sliding_cnt
+        total_top1 = total_top1 / sliding_cnt
+        total_top5 = total_top5 / sliding_cnt
+        loss = self.seg_weight * total_seg_loss + self.cls_weight * total_cls_loss
+
+        # step last clear memery buffer
+        self.memery_buffer = None
+
+
+        predicted = paddle.argmax(pred_score, axis=1)
         predicted = paddle.squeeze(predicted)
 
         loss_metrics = dict()
         loss_metrics['loss'] = loss
-        loss_metrics['loss_seg'] = seg_loss
-        loss_metrics['loss_cls'] = cls_loss
+        loss_metrics['loss_seg'] = total_seg_loss
+        loss_metrics['loss_cls'] = total_cls_loss
         loss_metrics['F1@0.50'] = self.head.get_F1_score(predicted, video_gt)
-        top1, top5 = self.head.get_top_one_acc(scores, video_gt)
-        loss_metrics['top_1'] = top1
-        loss_metrics['top_5'] = top5
+        
+        loss_metrics['top_1'] = total_top1
+        loss_metrics['top_5'] = total_top5
         return loss_metrics
 
     def test_step(self, data_batch):
         """Testing setp.
         """
-        imgs = data_batch[0]
-        vid = data_batch[-1]
+        imgs_np = data_batch[0].numpy()
 
-        outputs_dict = dict()
-        # call forward
-        headoutputs = self.forward_net(imgs, vid, 'test')
-        output = headoutputs
-        predicted = paddle.argmax(output[-1], axis=1)
+        # initilaze output result
+        pred_score = np.zeros((imgs_np.shape[0], self.num_classes, imgs_np.shape[1] * self.sample_rate))
+
+        # sliding segmentation
+        for start_frame in range(0, imgs_np.shape[1], self.sliding_strike):
+            # step 1 sliding sample
+            end_frame = start_frame + self.num_segs
+            if end_frame > imgs_np.shape[1]:
+                end_frame = imgs_np.shape[1]
+            imgs = paddle.to_tensor(imgs_np[:, start_frame:end_frame, :])
+
+            # call forward
+            headoutputs = self.forward_net(imgs, start_frame, end_frame, 'test')
+
+            output, _ = headoutputs
+            # step 6 post precessing
+            refine_start_frame = start_frame - (self.clip_buffer_num * self.num_segs)
+            if refine_start_frame < 0:
+                refine_start_frame = 0
+            valid_len = end_frame - refine_start_frame
+            pred_score[:, :, refine_start_frame:end_frame] = output[-1, :, :, -valid_len:].clone().detach()
+
+        # step last clear memery buffer
+        self.memery_buffer = None
+
+
+        predicted = paddle.argmax(pred_score, axis=1)
         predicted = paddle.squeeze(predicted)
-        outputs_dict['predict'] = predicted
-        outputs_dict['output_np'] = F.sigmoid(output[-1])
-        return outputs_dict
+
+        loss_metrics = dict()
+        loss_metrics['predict'] = predicted
+        loss_metrics['output_np'] = F.sigmoid(pred_score)
+        return loss_metrics
 
     def infer_step(self, data_batch):
         """Infering setp.
@@ -154,8 +264,8 @@ class ETE(BaseSegmenter):
         vid = data_batch[-1]
 
         # call forward
-        headoutputs = self.forward_net(imgs, vid, 'infer')
-        output = headoutputs
+        headoutputs = self.forward_net(imgs, 'infer')
+        output, _ = headoutputs
         predicted = paddle.argmax(output[-1], axis=1)
         predicted = paddle.squeeze(predicted)
         output_np = F.sigmoid(output[-1])

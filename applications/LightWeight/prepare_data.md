@@ -83,8 +83,8 @@ python applications/LightWeight/prepare_ete_data_list.py \
                         --split_list_path data/gtea/splits \
                         --label_path data/gtea/groundTruth \
                         --output_path data/gtea/split_frames \
-                        --window_size 300 \
-                        --strike 60
+                        --window_size 60 \
+                        --strike 15
 ```
 
 

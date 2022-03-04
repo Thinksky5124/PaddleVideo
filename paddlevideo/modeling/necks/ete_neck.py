@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from curses.ascii import BS
+from tkinter.messagebox import NO
 import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
@@ -33,9 +35,13 @@ from ..backbones.ms_tcn import init_bias, SingleStageModel, DilatedResidualLayer
 class ETENeck(BaseNeck):
 
     def __init__(self,
-                 input_size,
-                 hidden_size,
-                 num_layers=2,
+                 buffer_channels,
+                 hidden_channels,
+                 num_layers,
+                 output_channels,
+                 clip_buffer_num=3,
+                 sliding_strike=15,
+                 max_len=10000,
                  data_format="NCHW"):
         super().__init__()
 
@@ -44,55 +50,163 @@ class ETENeck(BaseNeck):
         ]), f"data_format must be 'NCHW' or 'NHWC', but got {data_format}"
 
         self.data_format = data_format
-        self.input_size = input_size
-        self.hidden_size = hidden_size
+        self.buffer_channels = buffer_channels
+        self.hidden_channels = hidden_channels
+        self.output_channels = output_channels
         self.num_layers = num_layers
+        self.clip_buffer_num = clip_buffer_num
+        self.sliding_strike = sliding_strike
+        self.max_len = max_len
+
+        self.stage1 = SingleStageModel(self.num_layers, self.hidden_channels,
+                                       self.buffer_channels, self.output_channels)
 
         self.avgpool2d = nn.AdaptiveAvgPool2D((1, 1),
                                               data_format=self.data_format)
-        # self.memery_unit = nn.LSTM(self.input_size,
-        #                            self.hidden_size,
-        #                            num_layers=self.num_layers)
+        
+        self.pos_embedding = PositionalEmbedding(self.buffer_channels, self.max_len)
 
-    def forward(self, x, num_segs):
+    def forward(self, x, memery_buffer, num_segs, start_frame, end_frame):
         """ ETEHead forward
         """
         # x.shape = [N * num_segs, in_channels, 7, 7]
         x = self.avgpool2d(x)
         # x.shape = [N * num_segs, in_channels, 1, 1]
 
-        seg_x = paddle.squeeze(x)  # [N * num_segs, in_channels]
-        seg_feature = paddle.reshape(seg_x,
-                                     shape=[-1, num_segs, seg_x.shape[-1]
-                                            ])  # [N, num_segs, in_channels]
+        # segmentation branch
+        # [N * num_segs, in_channels]
+        seg_x = paddle.squeeze(x)
+        # [N, num_segs, in_channels]
+        seg_feature = paddle.reshape(seg_x, shape=[-1, num_segs, seg_x.shape[-1]])  
+        # [N, in_channels, num_segs]
+        seg_feature = paddle.transpose(seg_feature, perm=[0, 2, 1]) 
 
-        # # Todos: new video flash value
-        # # Design: backward require
-        # if self.h is None and self.c is None:
-        #     # add pre information
-        #     self.pad_zeros = paddle.zeros(
-        #         [seg_x.shape[0], num_segs, self.hidden_size])
-        #     seg_feature = paddle.concat([seg_x, self.pad_zeros], axis=2)
-        #     # memeroy
-        #     _, (h, c) = self.memery_unit(seg_x)
-        #     self.h = h.detach()
-        #     self.c = c.detach()
-        # else:
-        #     # concate pre information
-        #     # N T D
-        #     h_pad = paddle.tile(self.h[-1, :, :].unsqueeze(1),
-        #                         repeat_times=[1, num_segs, 1])
-        #     seg_feature = paddle.concat([seg_x, h_pad], axis=2)
-        #     # memeroy
-        #     _, (self.h, self.c) = self.memery_unit(seg_x, (self.h, self.c))
+        # position encoding
+        # [N, num_segs, in_channels]
+        pos_emb = self.pos_embedding(seg_feature.shape[0], start_frame, end_frame)
+        # [N, in_channels, num_segs]
+        pos_emb = paddle.transpose(pos_emb, perm=[0, 2, 1]) 
+        seg_feature = seg_feature + pos_emb
+        
+        # memery model
+        if memery_buffer is None:
+            # [N, buffer_channels, num_segs * clip_buffer_num]
+            zeros_pad = paddle.zeros((seg_feature.shape[0], self.buffer_channels, num_segs * self.clip_buffer_num))
+            # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
+            pad_feature = paddle.concat([zeros_pad, seg_feature], axis=2)
+            # [N, output_channels, num_segs * (clip_buffer_num + 1)]
+            seg_feature = self.stage1(pad_feature)
+            # [N, output_channels, num_segs * clip_buffer_num]
+            memery_buffer = paddle.roll(seg_feature, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone().detach()
+        else:
+            # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
+            pad_feature = paddle.concat([zeros_pad, seg_feature], axis=2)
+            # [N, output_channels, num_segs * (clip_buffer_num + 1)]
+            seg_feature = self.stage1(pad_feature)
+            # [N, output_channels, num_segs * clip_buffer_num]
+            memery_buffer = paddle.roll(seg_feature, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone().detach()
 
-        seg_feature = paddle.transpose(seg_feature,
-                                       perm=[0, 2,
-                                             1])  # [N, in_channels, num_segs]
-
-        return seg_feature, x
+        return seg_feature, x, memery_buffer
 
     def init_weights(self):
-        # initalize h c
-        self.h = None
-        self.c = None
+        for layer in self.sublayers():
+            if isinstance(layer, nn.Conv1D):
+                layer.weight.set_value(
+                    KaimingUniform_like_torch(layer.weight).astype('float32'))
+                if layer.bias is not None:
+                    layer.bias.set_value(
+                        init_bias(layer.weight, layer.bias).astype('float32'))
+
+def position_encoding_init(n_position, d_pos_vec, dtype="float32"):
+    """
+    Generates the initial values for the sinusoidal position encoding table.
+    This method follows the implementation in tensor2tensor, but is slightly
+    different from the description in "Attention Is All You Need".
+    Args:
+        n_position (int): 
+            The largest position for sequences, that is, the maximum length
+            of source or target sequences.
+        d_pos_vec (int): 
+            The size of positional embedding vector. 
+        dtype (str, optional): 
+            The output `numpy.array`'s data type. Defaults to "float32".
+    Returns:
+        numpy.array: 
+            The embedding table of sinusoidal position encoding with shape
+            `[n_position, d_pos_vec]`.
+    Example:
+        .. code-block::
+            from paddlenlp.transformers import position_encoding_init
+            max_length = 256
+            emb_dim = 512
+            pos_table = position_encoding_init(max_length, emb_dim)
+    """
+    channels = d_pos_vec
+    position = np.arange(n_position)
+    num_timescales = channels // 2
+    log_timescale_increment = (np.log(float(1e4) / float(1)) /
+                               (num_timescales - 1))
+    inv_timescales = np.exp(
+        np.arange(num_timescales) * -log_timescale_increment)
+    scaled_time = np.expand_dims(position, 1) * np.expand_dims(inv_timescales,
+                                                               0)
+    signal = np.concatenate([np.sin(scaled_time), np.cos(scaled_time)], axis=1)
+    signal = np.pad(signal, [[0, 0], [0, np.mod(channels, 2)]], 'constant')
+    position_enc = signal
+    return position_enc.astype(dtype)
+
+
+class PositionalEmbedding(nn.Layer):
+    """
+    This layer produces sinusoidal positional embeddings of any length.
+    While in `forward()` method, this layer lookups embeddings vector of
+    ids provided by input `pos`.
+    Args:
+        emb_dim (int):
+            The size of each embedding vector.
+        max_length (int):
+            The maximum length of sequences.
+    """
+
+    def __init__(self, emb_dim, max_length):
+        super(PositionalEmbedding, self).__init__()
+        self.emb_dim = emb_dim
+        self.max_length = max_length
+
+        self.pos_encoder = nn.Embedding(
+            num_embeddings=max_length,
+            embedding_dim=self.emb_dim,
+            weight_attr=paddle.ParamAttr(
+                initializer=paddle.nn.initializer.Assign(
+                    position_encoding_init(max_length, self.emb_dim))))
+
+    def forward(self, bs, start_frame, end_frame):
+        r"""
+        Computes positional embedding.
+        Args:
+            pos (Tensor):
+                The input position ids with shape `[batch_size, sequence_length]` whose
+                data type can be int or int64.
+        Returns:
+            Tensor:
+                The positional embedding tensor of shape
+                `(batch_size, sequence_length, emb_dim)` whose data type can be
+                float32 or float64.
+        
+        Example:
+            .. code-block::
+                import paddle
+                from paddlenlp.transformers import PositionalEmbedding
+                pos_embedding = PositionalEmbedding(
+                    emb_dim=512,
+                    max_length=256)
+                batch_size = 5
+                pos = paddle.tile(paddle.arange(start=0, end=50), repeat_times=[batch_size, 1])
+                pos_emb = pos_embedding(pos)
+        """
+        pos = paddle.tile(paddle.arange(start=0, end=self.max_length), repeat_times=[bs, 1])
+        pos_emb = self.pos_encoder(pos)
+        pos_emb.stop_gradient = True
+        pos_emb = pos_emb[:, start_frame:end_frame, :]
+        return pos_emb
+

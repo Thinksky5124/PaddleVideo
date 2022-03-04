@@ -7,9 +7,12 @@ MODEL: #MODEL field
         depth: 50 #Optional, the depth of backbone architecture. # 层数是不是太深了
     neck:
         name: "ETENeck" # 层数多 对比层数少的分数
-        input_size: 2048
-        hidden_size: 2048
-        num_layers: 2
+        buffer_channels: 2048
+        hidden_channels: 64
+        num_layers: 5
+        output_channels: 11
+        clip_buffer_num: 3
+        sliding_strike: 15
     head:
         name: "ETEHead" #Mandatory, indicate the type of head, associate to the 'paddlevideo/modeling/heads'
         num_classes: 11 #Optional, the number of classes to be classified.
@@ -28,7 +31,6 @@ MODEL: #MODEL field
 DATASET: #DATASET field
     batch_size: 1 #Mandatory, bacth size
     num_workers: 1 #Mandatory, XXX the number of subprocess on each GPU.
-    shuffle_valid: False
     train:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
@@ -58,12 +60,10 @@ PIPELINE: #PIPELINE field
             backend: "decord"
         sample:
             name: "VideoStramSampler"
-            sample_len: 60
             seg_len: 1
             sample_rate: 4
             valid_mode: False
             select_left: True
-            with_label: True
         transform: #Mandotary, image transform operator.
             - MultiScaleCrop:
                 target_size: 224
@@ -80,12 +80,10 @@ PIPELINE: #PIPELINE field
             backend: "decord"
         sample:
             name: "VideoStramSampler"
-            sample_len: 60
             seg_len: 1
             sample_rate: 4
             valid_mode: True
             select_left: True
-            with_label: True
         transform:
             - Scale:
                 short_size: 256
@@ -103,12 +101,10 @@ PIPELINE: #PIPELINE field
             backend: "decord"
         sample:
             name: "VideoStramSampler"
-            sample_len: 60
             seg_len: 1
             sample_rate: 4
             valid_mode: True
             select_left: True
-            with_label: True
         transform:
             - Scale:
                 short_size: 256
@@ -135,7 +131,7 @@ OPTIMIZER: #OPTIMIZER field
         value: 20.0
 
 METRIC:
-    name: 'StreamSegmentationMetric'
+    name: 'SegmentationMetric'
     overlap: [.1, .25, .5]
     actions_map_file_path: "./data/gtea/mapping.txt"
     tolerance: 5
@@ -154,6 +150,6 @@ INFERENCE:
 
 
 model_name: "ETEMSTCN"
-log_interval: 10 #Optional, the interal of logger, default:10
+log_interval: 200 #Optional, the interal of logger, default:10
 epochs: 50 #Mandatory, total epoch
 save_interval: 10

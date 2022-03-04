@@ -64,8 +64,6 @@ class ETEHead(TSNHead):
         # cls score
         self.overlap = 0.5
 
-        self.stage1 = SingleStageModel(num_layers, num_f_maps,
-                                       self.seg_in_channels, num_classes)
         self.stages = nn.LayerList([
             copy.deepcopy(
                 SingleStageModel(num_layers, num_f_maps, num_classes,
@@ -104,20 +102,22 @@ class ETEHead(TSNHead):
     def forward(self, seg_feature, cls_feature, num_segs, mode):
         """MS-TCN no head
         """
-        # seg_feature [N, in_channels, num_segs]
+        # segmentation branch
+        # seg_feature [N, in_channels, temporal_len]
         # Interploate upsample
         seg_x_upsample = F.interpolate(x=seg_feature,
                                        scale_factor=self.sample_rate,
                                        mode="linear",
                                        data_format='NCW')
-
-        out = self.stage1(seg_x_upsample)
-        outputs = out.unsqueeze(0)
+        outputs = seg_x_upsample.unsqueeze(0)
+        out = seg_x_upsample
+        # seg_feature [stage_num, N, in_channels, temporal_len]
         for s in self.stages:
             out = s(F.softmax(out, axis=1))
             outputs = paddle.concat((outputs, out.unsqueeze(0)), axis=0)
         seg_score = outputs
 
+        # classification branch
         # cls_feature.shape = [N * num_segs, in_channels, 1, 1]
         if mode in ['train', 'val']:
             if self.dropout is not None:
@@ -138,11 +138,12 @@ class ETEHead(TSNHead):
             # score = F.softmax(score)  #NOTE remove
             return seg_score, cls_score
         else:
-            return seg_score
+            return seg_score, None
 
     def feature_extract_loss(self, scores, video_gt):
         """calculate loss
         """
+        video_gt = video_gt[:, -self.sample_len:]
         ce_y = video_gt[:, ::self.sample_rate]
         ce_gt_onehot = F.one_hot(
             ce_y, num_classes=self.num_classes)  # shape [T, num_classes]
@@ -172,6 +173,7 @@ class ETEHead(TSNHead):
         return loss
 
     def get_top_one_acc(self, scores, labels, valid_mode=False):
+        labels = labels[:, -self.sample_len:]
         ce_y = labels[:, ::self.sample_rate]
         ce_gt_onehot = F.one_hot(
             ce_y, num_classes=self.num_classes)  # shape [T, num_classes]
@@ -197,10 +199,11 @@ class ETEHead(TSNHead):
         for batch_size in range(predicted.shape[0]):
             # reshape output
             if ignore[1].shape[0] > 0 and ignore[0][0] == batch_size:
+                ignore_index = max(ignore[1])
                 recog_content = list(
-                    predicted[batch_size, :ignore[1][0]].numpy())
+                    predicted[batch_size, ignore_index:].numpy())
                 gt_content = list(
-                    groundTruth[batch_size, :ignore[1][0]].numpy())
+                    groundTruth[batch_size, ignore_index:].numpy())
             else:
                 recog_content = list(predicted[batch_size, :].numpy())
                 gt_content = list(groundTruth[batch_size, :].numpy())

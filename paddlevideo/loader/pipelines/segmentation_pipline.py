@@ -59,7 +59,6 @@ class VideoStramSampler(Sampler):
     """
 
     def __init__(self,
-                 sample_len,
                  seg_len,
                  sample_rate=2,
                  frame_interval=None,
@@ -67,9 +66,8 @@ class VideoStramSampler(Sampler):
                  select_left=False,
                  dense_sample=False,
                  linspace_sample=False,
-                 use_pil=True,
-                 with_label=True):
-        super(VideoStramSampler, self).__init__(sample_len // sample_len,
+                 use_pil=True):
+        super(VideoStramSampler, self).__init__(seg_len,
                                                 seg_len,
                                                 frame_interval=frame_interval,
                                                 valid_mode=valid_mode,
@@ -78,8 +76,6 @@ class VideoStramSampler(Sampler):
                                                 linspace_sample=linspace_sample,
                                                 use_pil=use_pil)
         self.sample_rate = sample_rate
-        self.sample_len = sample_len
-        self.with_label = with_label
 
     def __call__(self, results):
         """
@@ -89,62 +85,15 @@ class VideoStramSampler(Sampler):
             sampling id.
         """
         frames_len = int(results['frames_len'])
+        results['frames_len'] = frames_len
 
-        start_frame = results['start_frame']
-        end_frame = results['end_frame']
         frames_idx = []
 
-        if self.valid_mode:
-            if start_frame > frames_len:
-                start_frame = frames_len
-            if end_frame > frames_len:
-                end_frame = frames_len
-
-            if results['format'] == 'video':
-                frames_idx = list(range(start_frame, end_frame, self.sample_rate))
-            else:
-                raise NotImplementedError
-
-            if self.with_label:
-                classes = results['labels']
-                labels = classes[start_frame:end_frame]
-                results['labels'] = copy.deepcopy(labels)
-
+        if results['format'] == 'video':
+            frames_idx = list(range(0, frames_len, self.sample_rate))
         else:
-            frames_idx = list(np.floor(np.linspace(start_frame, end_frame, num = self.sample_len)))[::self.sample_rate]
-            
-            if self.with_label:
-                classes = results['labels']
-                labels = classes[start_frame:end_frame]
-
-                if len(labels) != self.sample_len:
-                    labels = np.repeat(labels[0], self.sample_len)
-
-                results['labels'] = copy.deepcopy(labels)
+            raise NotImplementedError
 
         results = self._get(frames_idx, results)
-
-        temporal_len = len(results['imgs'])
-        if self.with_label:
-            if temporal_len != self.sample_len // self.sample_rate or results[
-                    'labels'].shape[0] != self.sample_len:
-                imgbuf = np.zeros([3] + list(results['imgs'][0].size))
-                imgs_pad = [Image.fromarray(imgbuf, mode='RGB')] * (
-                    self.sample_len // self.sample_rate - temporal_len)
-                imgs = results['imgs'] + imgs_pad
-                labels_pad = np.full(self.sample_len -
-                                     results['labels'].shape[0],
-                                     -100,
-                                     dtype='int64')
-                labels = np.concatenate([results['labels'], labels_pad], axis=0)
-
-                results['labels'] = labels
-                results['imgs'] = imgs
-        else:
-            if temporal_len != self.sample_len // self.sample_rate:
-                imgbuf = np.zeros([3] + list(results['imgs'][0].size))
-                imgs_pad = [Image.fromarray(imgbuf, mode='RGB')] * (
-                    self.sample_len // self.sample_rate - temporal_len)
-                imgs = results['imgs'] + imgs_pad
-                results['imgs'] = imgs
+        
         return results
