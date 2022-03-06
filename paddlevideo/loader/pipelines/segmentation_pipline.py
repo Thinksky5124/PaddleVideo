@@ -95,5 +95,46 @@ class VideoStramSampler(Sampler):
             raise NotImplementedError
 
         results = self._get(frames_idx, results)
-        
         return results
+
+@PIPELINES.register()
+class BatchCompose(object):
+    def __init__(self, clip_seg_num=15,sample_rate=4):
+        self.clip_seg_num = clip_seg_num
+        self.sample_rate = sample_rate
+
+    def __call__(self, batch):
+        max_imgs_len = 0
+        max_labels_len = 0
+        for mini_batch in batch:
+            if max_imgs_len < mini_batch[0].shape[0]:
+                max_imgs_len = mini_batch[0].shape[0]
+            if max_labels_len < mini_batch[1].shape[0]:
+                max_labels_len = mini_batch[1].shape[0]
+
+        max_imgs_len = max_imgs_len + (self.clip_seg_num - max_imgs_len % self.clip_seg_num)
+        max_labels_len = max_labels_len + ((self.clip_seg_num * self.sample_rate) - max_labels_len % (self.clip_seg_num * self.sample_rate))
+
+        # shape imgs and labels len
+        for batch_id in range(len(batch)):
+            mini_batch_list = []
+            list(batch[batch_id])
+            # imgs
+            pad_imgs_len = max_imgs_len - batch[batch_id][0].shape[0]
+            # pad_imgs = np.zeros([pad_imgs_len] + list(batch[batch_id][0].shape[1:]), dtype=batch[batch_id][0].dtype)
+            pad_imgs = np.random.normal(size = [pad_imgs_len] + list(batch[batch_id][0].shape[1:])).astype(batch[batch_id][0].dtype)
+            mini_batch_list.append(np.concatenate([batch[batch_id][0], pad_imgs], axis=0))
+            # lables
+            pad_labels_len = max_labels_len - batch[batch_id][1].shape[0]
+            pad_labels = np.full([pad_labels_len] + list(batch[batch_id][1].shape[1:]), -100, dtype=batch[batch_id][1].dtype)
+            labels = np.concatenate([batch[batch_id][1], pad_labels], axis=0)
+            mini_batch_list.append(labels)
+            # masks
+            mask = labels != -100
+            mask = mask.astype(np.float32)
+            mini_batch_list.append(mask)
+            # vid
+            mini_batch_list.append(batch[batch_id][-1])
+            batch[batch_id] = tuple(mini_batch_list)
+        result_batch = copy.deepcopy(batch)
+        return result_batch

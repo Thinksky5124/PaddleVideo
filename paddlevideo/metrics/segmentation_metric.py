@@ -307,26 +307,32 @@ class SegmentationMetric(BaseSegmentationMetric):
         """update metrics during each iter
         """
         groundTruth = data[1]
-        vid = data[-1]
+        vid = data[-1].numpy()
 
-        # [N, T]
-        predicted = outputs['predict']
-        # [N, C, T]
-        output_np = outputs['output_np']
+        # list [N, T]
+        predicted_batch = outputs['predict']
+        # list [N, C, T]
+        output_np_batch = outputs['output_np']
 
-        if type(predicted) is not np.ndarray:
-            outputs_np = predicted.numpy()
-            outputs_arr = output_np.numpy()[0, :]
-            gt_np = groundTruth.numpy()[0, :]
-        else:
-            outputs_np = predicted
-            outputs_arr = output_np[0, :]
-            gt_np = groundTruth[0, :]
+        for bs in range(len(predicted_batch)):
+            predicted = predicted_batch[bs]
+            output_np = output_np_batch[bs]
+            index = np.where(groundTruth[bs, :].numpy() == -100)
+            ignore_start = min(index[0])
 
-        result = self._transform_model_result(outputs_np, gt_np, outputs_arr)
-        recog_content, gt_content, pred_detection, gt_detection = result
-        self._update_score(vid, recog_content, gt_content, pred_detection,
-                           gt_detection)
+            if type(predicted) is not np.ndarray:
+                outputs_np = predicted.numpy()
+                outputs_arr = output_np.numpy()
+                gt_np = groundTruth[bs, :ignore_start].numpy()
+            else:
+                outputs_np = predicted
+                outputs_arr = output_np
+                gt_np = groundTruth[bs, :ignore_start]
+
+            result = self._transform_model_result(outputs_np, gt_np, outputs_arr)
+            recog_content, gt_content, pred_detection, gt_detection = result
+            self._update_score([int(vid[bs])], recog_content, gt_content, pred_detection,
+                            gt_detection)
 
     def accumulate(self):
         """accumulate metrics when finished all iters.

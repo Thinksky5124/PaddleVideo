@@ -95,11 +95,14 @@ class SingleStageModel(nn.Layer):
         ])
         self.conv_out = nn.Conv1D(num_f_maps, num_classes, 1)
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         out = self.conv_in(x)
         for layer in self.layers:
             out = layer(out)
-        out = self.conv_out(out)
+        if mask is None:
+            out = self.conv_out(out)
+        else:
+            out = self.conv_out(out) * mask
         return out
 
 
@@ -115,11 +118,15 @@ class DilatedResidualLayer(nn.Layer):
         self.conv_in = nn.Conv1D(out_channels, out_channels, 1)
         self.dropout = nn.Dropout()
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         out = F.relu(self.conv_dilated(x))
         out = self.conv_in(out)
         out = self.dropout(out)
-        return (x + out)
+        if mask is None:
+            out = (x + out)
+        else:
+            out = (x + out) * mask
+        return out
 
 
 @BACKBONES.register()

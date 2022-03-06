@@ -7,12 +7,11 @@ MODEL: #MODEL field
         depth: 50 #Optional, the depth of backbone architecture. # 层数是不是太深了
     neck:
         name: "ETENeck" # 层数多 对比层数少的分数
-        buffer_channels: 2048
+        buffer_channels: 128
         hidden_channels: 64
         num_layers: 5
-        output_channels: 11
-        clip_buffer_num: 3
-        sliding_strike: 15
+        clip_buffer_num: 0
+        sliding_strike: 5
     head:
         name: "ETEHead" #Mandatory, indicate the type of head, associate to the 'paddlevideo/modeling/heads'
         num_classes: 11 #Optional, the number of classes to be classified.
@@ -22,33 +21,37 @@ MODEL: #MODEL field
         seg_in_channels: 2048 #Optional, the number of channels in input feature.
         cls_in_channels: 2048 #Optional, the number of channels in input feature.
         sample_rate: 4
-        sample_len: 60
         drop_ratio: 0.5 #the ratio of dropout
         std: 0.001 #std value in params initialization
     seg_weight: 1.0
     cls_weight: 1.0
 
+MIX:
+    name: "BatchCompose"
+    clip_seg_num: 15
+    sample_rate: 4
+
 DATASET: #DATASET field
-    batch_size: 1 #Mandatory, bacth size
-    num_workers: 1 #Mandatory, XXX the number of subprocess on each GPU.
+    batch_size: 8 #Mandatory, bacth size
+    num_workers: 4 #Mandatory, XXX the number of subprocess on each GPU.
     train:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
-        file_path: "./data/gtea/split_frames/train.split1.bundle" #Mandatory, train data index file path
+        file_path: "./data/gtea/splits/train.split1.bundle" #Mandatory, train data index file path
         videos_path: "./data/gtea/Videos"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
     valid:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
-        file_path: "./data/gtea/split_frames/test.split1.bundle" #Mandatory, train data index file path
+        file_path: "./data/gtea/splits/test.split1.bundle" #Mandatory, train data index file path
         videos_path: "./data/gtea/Videos"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
     test:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
-        file_path: "./data/gtea/split_frames/test.split1.bundle" #Mandatory, train data index file path
+        file_path: "./data/gtea/splits/test.split1.bundle" #Mandatory, train data index file path
         videos_path: "./data/gtea/Videos"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
@@ -125,7 +128,7 @@ OPTIMIZER: #OPTIMIZER field
         values: [0.001, 0.0005, 0.0001]  #1 cards * 12 batch size
     weight_decay:
         name: 'L2'
-        value: 0.0001
+        value: 0.0004
     grad_clip:
         name: 'ClipGradByGlobalNorm'
         value: 20.0
@@ -150,6 +153,6 @@ INFERENCE:
 
 
 model_name: "ETEMSTCN"
-log_interval: 200 #Optional, the interal of logger, default:10
+log_interval: 1 #Optional, the interal of logger, default:10
 epochs: 50 #Mandatory, total epoch
 save_interval: 10

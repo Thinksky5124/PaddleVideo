@@ -31,7 +31,7 @@ from .segmentation import MultiNorm, MultiRestrictSize
 from .skeleton_pipeline import AutoPadding, Iden, SkeletonNorm
 from .skeleton_pipeline import SketeonCropSample, SketeonModalityTransform, RandomRotation
 from .decode_sampler_MRI import SFMRI_DecodeSampler
-from .segmentation_pipline import SegmentationSampler, VideoStramSampler
+from .segmentation_pipline import SegmentationSampler, VideoStramSampler, BatchCompose
 
 __all__ = [
     'ImageDecoder', 'RandomMask', 'UniformCrop', 'SkeletonNorm', 'Tokenize',
@@ -44,5 +44,5 @@ __all__ = [
     'SFMRI_DecodeSampler', 'MultiRestrictSize', 'MultiNorm',
     'RandomResizedCrop', 'SamplerPkl', 'SegmentationSampler',
     'SketeonCropSample', 'SketeonModalityTransform', 'VideoStramSampler',
-    'RandomRotation'
+    'RandomRotation', 'BatchCompose'
 ]

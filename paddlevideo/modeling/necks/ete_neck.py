@@ -38,7 +38,6 @@ class ETENeck(BaseNeck):
                  buffer_channels,
                  hidden_channels,
                  num_layers,
-                 output_channels,
                  clip_buffer_num=3,
                  sliding_strike=15,
                  max_len=10000,
@@ -52,59 +51,65 @@ class ETENeck(BaseNeck):
         self.data_format = data_format
         self.buffer_channels = buffer_channels
         self.hidden_channels = hidden_channels
-        self.output_channels = output_channels
         self.num_layers = num_layers
         self.clip_buffer_num = clip_buffer_num
         self.sliding_strike = sliding_strike
         self.max_len = max_len
 
-        self.stage1 = SingleStageModel(self.num_layers, self.hidden_channels,
-                                       self.buffer_channels, self.output_channels)
+        self.causal_conv = SingleStageModel(self.num_layers, self.hidden_channels,
+                                       self.buffer_channels, self.buffer_channels)
 
         self.avgpool2d = nn.AdaptiveAvgPool2D((1, 1),
                                               data_format=self.data_format)
         
+        self.reduce_conv = nn.Conv1D(2048, self.buffer_channels, kernel_size=1)
+        
         self.pos_embedding = PositionalEmbedding(self.buffer_channels, self.max_len)
 
-    def forward(self, x, memery_buffer, num_segs, start_frame, end_frame):
+    def forward(self, x, memery_buffer, num_segs, start_frame):
         """ ETEHead forward
         """
-        # x.shape = [N * num_segs, in_channels, 7, 7]
+        # x.shape = [N * num_segs, 2048, 7, 7]
         x = self.avgpool2d(x)
-        # x.shape = [N * num_segs, in_channels, 1, 1]
+        # x.shape = [N * num_segs, 2048, 1, 1]
 
         # segmentation branch
-        # [N * num_segs, in_channels]
+        # [N * num_segs, 2048]
         seg_x = paddle.squeeze(x)
-        # [N, num_segs, in_channels]
+        # [N, num_segs, 2048]
         seg_feature = paddle.reshape(seg_x, shape=[-1, num_segs, seg_x.shape[-1]])  
-        # [N, in_channels, num_segs]
+        # [N, 2048, num_segs]
         seg_feature = paddle.transpose(seg_feature, perm=[0, 2, 1]) 
 
-        # position encoding
-        # [N, num_segs, in_channels]
-        pos_emb = self.pos_embedding(seg_feature.shape[0], start_frame, end_frame)
-        # [N, in_channels, num_segs]
-        pos_emb = paddle.transpose(pos_emb, perm=[0, 2, 1]) 
-        seg_feature = seg_feature + pos_emb
+        # # [N, buffer_channels, num_segs]
+        # seg_feature = self.reduce_conv(seg_feature)
+        # # position encoding
+        # # [N, num_segs, buffer_channels]
+        # end_frame = start_frame + num_segs
+        # pos_emb = self.pos_embedding(seg_feature.shape[0], start_frame, end_frame)
+        # # [N, buffer_channels, num_segs]
+        # pos_emb = paddle.transpose(pos_emb, perm=[0, 2, 1]) 
+        # seg_feature = seg_feature + pos_emb
         
-        # memery model
-        if memery_buffer is None:
-            # [N, buffer_channels, num_segs * clip_buffer_num]
-            zeros_pad = paddle.zeros((seg_feature.shape[0], self.buffer_channels, num_segs * self.clip_buffer_num))
-            # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
-            pad_feature = paddle.concat([zeros_pad, seg_feature], axis=2)
-            # [N, output_channels, num_segs * (clip_buffer_num + 1)]
-            seg_feature = self.stage1(pad_feature)
-            # [N, output_channels, num_segs * clip_buffer_num]
-            memery_buffer = paddle.roll(seg_feature, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone().detach()
-        else:
-            # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
-            pad_feature = paddle.concat([zeros_pad, seg_feature], axis=2)
-            # [N, output_channels, num_segs * (clip_buffer_num + 1)]
-            seg_feature = self.stage1(pad_feature)
-            # [N, output_channels, num_segs * clip_buffer_num]
-            memery_buffer = paddle.roll(seg_feature, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone().detach()
+        # # memery model
+        # if memery_buffer is None:
+        #     # [N, buffer_channels, num_segs * clip_buffer_num]
+        #     zeros_pad = paddle.zeros((seg_feature.shape[0], self.buffer_channels, num_segs * self.clip_buffer_num))
+        #     # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
+        #     pad_feature = paddle.concat([zeros_pad, seg_feature], axis=2)
+        #     # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
+        #     seg_feature = self.causal_conv(pad_feature)
+        #     # [N, buffer_channels, num_segs * clip_buffer_num]
+        #     memery_buffer = paddle.roll(seg_feature, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone()
+        #     memery_buffer.stop_gradient = True
+        # else:
+        #     # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
+        #     pad_feature = paddle.concat([memery_buffer, seg_feature], axis=2)
+        #     # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
+        #     seg_feature = self.causal_conv(pad_feature)
+        #     # [N, buffer_channels, num_segs * clip_buffer_num]
+        #     memery_buffer = paddle.roll(seg_feature, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone()
+        #     memery_buffer.stop_gradient = True
 
         return seg_feature, x, memery_buffer
 

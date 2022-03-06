@@ -35,7 +35,6 @@ class ETEHead(TSNHead):
                  num_classes,
                  cls_in_channels,
                  seg_in_channels,
-                 sample_len,
                  num_stages,
                  num_layers,
                  num_f_maps,
@@ -51,11 +50,10 @@ class ETEHead(TSNHead):
                          data_format=data_format,
                          **kwargs)
         self.ce = nn.CrossEntropyLoss(ignore_index=-100)
-        self.ce_soft = nn.CrossEntropyLoss(ignore_index=-100, soft_label=True)
+        self.ce_soft = nn.CrossEntropyLoss(ignore_index=-100, soft_label=True, reduction='none')
         self.mse = nn.MSELoss(reduction='none')
         self.num_classes = num_classes
         self.sample_rate = sample_rate
-        self.sample_len = sample_len
         self.cls_in_channels = cls_in_channels
         self.seg_in_channels = seg_in_channels
 
@@ -64,6 +62,7 @@ class ETEHead(TSNHead):
         # cls score
         self.overlap = 0.5
 
+        self.stage1 = SingleStageModel(num_layers, num_f_maps, seg_in_channels, num_classes)
         self.stages = nn.LayerList([
             copy.deepcopy(
                 SingleStageModel(num_layers, num_f_maps, num_classes,
@@ -85,9 +84,6 @@ class ETEHead(TSNHead):
 
         self.stdv = std
 
-        if self.sample_len % self.sample_rate != 0:
-            raise NotImplementedError
-
     def init_weights(self):
         """Initiate the FC layer parameters"""
         weight_init_(self.fc, 'Normal', 'fc_0.w_0', 'fc_0.b_0', std=self.stdv)
@@ -99,21 +95,21 @@ class ETEHead(TSNHead):
                     layer.bias.set_value(
                         init_bias(layer.weight, layer.bias).astype('float32'))
 
-    def forward(self, seg_feature, cls_feature, num_segs, mode):
+    def forward(self, seg_feature, cls_feature, seg_mask, num_segs, mode):
         """MS-TCN no head
         """
         # segmentation branch
         # seg_feature [N, in_channels, temporal_len]
         # Interploate upsample
-        seg_x_upsample = F.interpolate(x=seg_feature,
-                                       scale_factor=self.sample_rate,
-                                       mode="linear",
-                                       data_format='NCW')
-        outputs = seg_x_upsample.unsqueeze(0)
-        out = seg_x_upsample
+        seg_x_upsample = F.interpolate(x=seg_feature.unsqueeze(2),
+                                       size=[1, num_segs * self.sample_rate],
+                                       mode="bilinear",
+                                       data_format='NCHW').squeeze(2)
+        out = self.stage1(seg_x_upsample, seg_mask)
+        outputs = out.unsqueeze(0)
         # seg_feature [stage_num, N, in_channels, temporal_len]
         for s in self.stages:
-            out = s(F.softmax(out, axis=1))
+            out = s(F.softmax(out, axis=1), seg_mask)
             outputs = paddle.concat((outputs, out.unsqueeze(0)), axis=0)
         seg_score = outputs
 
@@ -143,15 +139,16 @@ class ETEHead(TSNHead):
     def feature_extract_loss(self, scores, video_gt):
         """calculate loss
         """
-        video_gt = video_gt[:, -self.sample_len:]
-        ce_y = video_gt[:, ::self.sample_rate]
         ce_gt_onehot = F.one_hot(
-            ce_y, num_classes=self.num_classes)  # shape [T, num_classes]
+            video_gt, num_classes=self.num_classes)  # shape [N, T, num_classes]
         smooth_label = paddle.sum(ce_gt_onehot, axis=1) / ce_gt_onehot.shape[1]
-        ce_loss = self.ce_soft(scores, smooth_label)
+        ce_loss_matrix = self.ce_soft(scores, smooth_label)
+        mask = paddle.sum(smooth_label, axis=1) != 0
+        mask = paddle.cast(mask, 'float32')
+        ce_loss = paddle.mean(ce_loss_matrix * mask)
         return ce_loss
 
-    def segmentation_loss(self, output, video_gt):
+    def segmentation_loss(self, output, video_gt, mask):
         """calculate loss
         """
         # output shape [N C T]
@@ -165,18 +162,15 @@ class ETEHead(TSNHead):
 
             mse = self.mse(
                 F.log_softmax(output[batch_id, :, 1:], axis=1),
-                F.log_softmax(output.detach()[batch_id, :, :-1], axis=1))
+                F.log_softmax(output.detach()[batch_id, :, :-1], axis=1)) * mask[:, :, 1:]
             mse = paddle.clip(mse, min=0, max=16)
             mse_loss = 0.15 * paddle.mean(mse)
             loss += mse_loss
-
         return loss
 
     def get_top_one_acc(self, scores, labels, valid_mode=False):
-        labels = labels[:, -self.sample_len:]
-        ce_y = labels[:, ::self.sample_rate]
         ce_gt_onehot = F.one_hot(
-            ce_y, num_classes=self.num_classes)  # shape [T, num_classes]
+            labels, num_classes=self.num_classes)  # shape [N, T, num_classes]
         smooth_label = paddle.sum(ce_gt_onehot, axis=1) / ce_gt_onehot.shape[1]
         labels = paddle.argmax(smooth_label, axis=1).unsqueeze(1)
         top1, top5 = self.get_acc(scores, labels, valid_mode)
@@ -189,24 +183,14 @@ class ETEHead(TSNHead):
         edit = 0
         tp = 0
         fp = 0
-        fn = 0
+        fn = 0   
 
-        ignore = np.where(groundTruth == -100)
+        for batch_size in range(groundTruth.shape[0]):
+            index = np.where(groundTruth[batch_size, :].numpy() == -100)
+            ignore_start = min(index[0])
 
-        if len(predicted.shape) < 2:
-            predicted = predicted.unsqueeze(0)
-
-        for batch_size in range(predicted.shape[0]):
-            # reshape output
-            if ignore[1].shape[0] > 0 and ignore[0][0] == batch_size:
-                ignore_index = max(ignore[1])
-                recog_content = list(
-                    predicted[batch_size, ignore_index:].numpy())
-                gt_content = list(
-                    groundTruth[batch_size, ignore_index:].numpy())
-            else:
-                recog_content = list(predicted[batch_size, :].numpy())
-                gt_content = list(groundTruth[batch_size, :].numpy())
+            recog_content = list(predicted[batch_size].numpy())
+            gt_content = list(groundTruth[batch_size, :ignore_start].numpy())
 
             for i in range(len(gt_content)):
                 total += 1

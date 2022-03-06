@@ -117,13 +117,13 @@ class SegmentationDataset(BaseDataset):
         results = copy.deepcopy(self.info[idx])
         results = self.pipeline(results)
 
-        return results['imgs'], results['labels'], results['video_name']
+        return results['imgs'], results['labels'], idx
 
     def prepare_test(self, idx):
         results = copy.deepcopy(self.info[idx])
         results = self.pipeline(results)
 
-        return results['imgs'], results['labels'], results['video_name']
+        return results['imgs'], results['labels'], idx
 
 # @DATASETS.register()
 # class SegmentationDataset(BaseDataset):
