@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from matplotlib import use
 import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
@@ -33,8 +34,7 @@ class ETEHead(TSNHead):
 
     def __init__(self,
                  num_classes,
-                 cls_in_channels,
-                 seg_in_channels,
+                 in_channels,
                  num_stages,
                  num_layers,
                  num_f_maps,
@@ -44,7 +44,7 @@ class ETEHead(TSNHead):
                  data_format="NCHW",
                  **kwargs):
         super().__init__(num_classes,
-                         in_channels=cls_in_channels,
+                         in_channels=in_channels,
                          drop_ratio=drop_ratio,
                          std=std,
                          data_format=data_format,
@@ -54,22 +54,21 @@ class ETEHead(TSNHead):
         self.mse = nn.MSELoss(reduction='none')
         self.num_classes = num_classes
         self.sample_rate = sample_rate
-        self.cls_in_channels = cls_in_channels
-        self.seg_in_channels = seg_in_channels
+        self.softmax_seg = nn.Softmax(axis=2)
 
         self.epls = 1e-6
 
         # cls score
         self.overlap = 0.5
 
-        self.stage1 = SingleStageModel(num_layers, num_f_maps, seg_in_channels, num_classes)
+        self.stage1 = SingleStageModel(num_layers, num_f_maps, in_channels, num_classes)
         self.stages = nn.LayerList([
             copy.deepcopy(
                 SingleStageModel(num_layers, num_f_maps, num_classes,
                                  num_classes)) for s in range(num_stages - 1)
         ])
 
-        self.fc = Linear(self.cls_in_channels,
+        self.fc = Linear(self.in_channels,
                          self.num_classes,
                          weight_attr=ParamAttr(learning_rate=5.0,
                                                regularizer=L2Decay(1e-4)),
@@ -95,60 +94,40 @@ class ETEHead(TSNHead):
                     layer.bias.set_value(
                         init_bias(layer.weight, layer.bias).astype('float32'))
 
-    def forward(self, seg_feature, cls_feature, seg_mask, num_segs, mode):
+    def forward(self, seg_feature, seg_mask):
         """MS-TCN no head
         """
         # segmentation branch
         # seg_feature [N, in_channels, temporal_len]
         # Interploate upsample
+        # ! transpose conv will better?
         seg_x_upsample = F.interpolate(x=seg_feature.unsqueeze(2),
-                                       size=[1, num_segs * self.sample_rate],
+                                       size=[1, seg_feature.shape[-1] * self.sample_rate],
                                        mode="bilinear",
-                                       data_format='NCHW').squeeze(2)
-        out = self.stage1(seg_x_upsample, seg_mask)
-        outputs = out.unsqueeze(0)
-        # seg_feature [stage_num, N, in_channels, temporal_len]
-        for s in self.stages:
-            out = s(F.softmax(out, axis=1), seg_mask)
-            outputs = paddle.concat((outputs, out.unsqueeze(0)), axis=0)
-        seg_score = outputs
+                                       data_format=self.data_format).squeeze(2)
+        # out = self.stage1(seg_x_upsample, seg_mask)
+        # outputs = out.unsqueeze(0)
+        # # seg_feature [stage_num, N, num_class, temporal_len]
+        # for s in self.stages:
+        #     out = s(F.softmax(out, axis=1), seg_mask)
+        #     outputs = paddle.concat((outputs, out.unsqueeze(0)), axis=0)
+        # seg_score = self.softmax_seg(outputs)
 
         # classification branch
-        # cls_feature.shape = [N * num_segs, in_channels, 1, 1]
-        if mode in ['train', 'val']:
-            if self.dropout is not None:
-                cls_x = self.dropout(
-                    cls_feature)  # [N * num_seg, in_channels, 1, 1]
+        if self.dropout is not None:
+            cls_x = self.dropout(
+                seg_x_upsample)  # [N, in_channels, temporal_len]
+        cls_x = paddle.transpose(seg_x_upsample, [0, 2, 1])
+        cls_x = paddle.reshape(seg_x_upsample, [-1, self.in_channels])# [N * temporal_len, in_channels]
+        score = self.fc(cls_x)  # [N * temporal_len, num_class]
+        seg_score = paddle.reshape(
+            score,
+            [seg_feature.shape[0], -1, score.shape[1]])  # [N, temporal_len, num_class]
+        seg_score = paddle.transpose(seg_score, [0, 2, 1]).unsqueeze(0)
+        # [1, N, num_class, temporal_len]
+        return seg_score
 
-            if self.data_format == 'NCHW':
-                cls_x = paddle.reshape(cls_x, cls_x.shape[:2])
-            else:
-                cls_x = paddle.reshape(cls_x, cls_x.shape[::3])
-            score = self.fc(cls_x)  # [N * num_seg, num_class]
-            score = paddle.reshape(
-                score,
-                [-1, num_segs, score.shape[1]])  # [N, num_seg, num_class]
-            score = paddle.mean(score, axis=1)  # [N, num_class]
-            cls_score = paddle.reshape(score, shape=[-1, self.num_classes
-                                                     ])  # [N, num_class]
-            # score = F.softmax(score)  #NOTE remove
-            return seg_score, cls_score
-        else:
-            return seg_score, None
-
-    def feature_extract_loss(self, scores, video_gt):
-        """calculate loss
-        """
-        ce_gt_onehot = F.one_hot(
-            video_gt, num_classes=self.num_classes)  # shape [N, T, num_classes]
-        smooth_label = paddle.sum(ce_gt_onehot, axis=1) / ce_gt_onehot.shape[1]
-        ce_loss_matrix = self.ce_soft(scores, smooth_label)
-        mask = paddle.sum(smooth_label, axis=1) != 0
-        mask = paddle.cast(mask, 'float32')
-        ce_loss = paddle.mean(ce_loss_matrix * mask)
-        return ce_loss
-
-    def segmentation_loss(self, output, video_gt, mask):
+    def loss(self, output, video_gt, mask):
         """calculate loss
         """
         # output shape [N C T]
@@ -157,8 +136,19 @@ class ETEHead(TSNHead):
         ce_y = video_gt
         loss = 0.0
         for batch_id in range(output.shape[0]):
-            ce_loss = self.ce(ce_x[batch_id, :, :], ce_y[batch_id, :])
-            loss = ce_loss
+            # ce_loss = self.ce(ce_x[batch_id, :, :], ce_y[batch_id, :])
+            # loss = ce_loss
+
+            ce_gt_onehot = F.one_hot(
+            ce_y[batch_id, :], num_classes=self.num_classes)  # shape [T, num_classes]
+            cls_mask = paddle.sum(ce_gt_onehot, axis=1) != 0
+            cls_mask = paddle.cast(cls_mask, 'float32')
+
+            # one = paddle.to_tensor([1.], dtype='float32')
+            # fg_label = paddle.greater_equal(ce_gt_onehot, one)
+            # fg_num = paddle.sum(paddle.cast(fg_label, dtype='float32'))
+            ce_loss = F.sigmoid_focal_loss(ce_x[batch_id, :, :], ce_gt_onehot, reduction='none') * cls_mask.unsqueeze(1)
+            loss = paddle.mean(ce_loss)
 
             mse = self.mse(
                 F.log_softmax(output[batch_id, :, 1:], axis=1),
@@ -167,14 +157,6 @@ class ETEHead(TSNHead):
             mse_loss = 0.15 * paddle.mean(mse)
             loss += mse_loss
         return loss
-
-    def get_top_one_acc(self, scores, labels, valid_mode=False):
-        ce_gt_onehot = F.one_hot(
-            labels, num_classes=self.num_classes)  # shape [N, T, num_classes]
-        smooth_label = paddle.sum(ce_gt_onehot, axis=1) / ce_gt_onehot.shape[1]
-        labels = paddle.argmax(smooth_label, axis=1).unsqueeze(1)
-        top1, top5 = self.get_acc(scores, labels, valid_mode)
-        return top1, top5
 
     def get_F1_score(self, predicted, groundTruth):
         # cls score

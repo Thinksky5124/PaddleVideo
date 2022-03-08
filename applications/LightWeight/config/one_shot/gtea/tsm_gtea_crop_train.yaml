@@ -1,39 +1,45 @@
 MODEL: #MODEL field
-    framework: "Recognizer2D" #Mandatory, indicate the type of network, associate to the 'paddlevideo/modeling/framework/' .
+    framework: "ETE" #Mandatory, indicate the type of network, associate to the 'paddlevideo/modeling/framework/' .
     backbone: #Mandatory, indicate the type of backbone, associate to the 'paddlevideo/modeling/backbones/' .
         name: "ResNetTSM" #Mandatory, The name of backbone.
         pretrained: "data/ResNet50_pretrain.pdparams" #Optional, pretrained model path.
         num_seg: 15
-        depth: 50 #Optional, the depth of backbone architecture.
+        depth: 50 #Optional, the depth of backbone architecture. # 层数是不是太深了
     head:
         name: "TSMHead" #Mandatory, indicate the type of head, associate to the 'paddlevideo/modeling/heads'
         num_classes: 11 #Optional, the number of classes to be classified.
         in_channels: 2048 #input channel of the extracted feature.
         drop_ratio: 0.5 #the ratio of dropout
         std: 0.001 #std value in params initialization
+    seg_weight: 1.0
 
+MIX:
+    name: "BatchCompose"
+    clip_seg_num: 15
+    sample_rate: 4
 
 DATASET: #DATASET field
-    batch_size: 4 #Mandatory, bacth size
-    num_workers: 2 #Mandatory, XXX the number of subprocess on each GPU.
+    batch_size: 6 #Mandatory, bacth size
+    num_workers: 3 #Mandatory, XXX the number of subprocess on each GPU.
+    test_batch_size: 6
     train:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
-        file_path: "./data/gtea/split_frames/train.split1.bundle" #Mandatory, train data index file path
+        file_path: "./data/gtea/splits/train.split1.bundle" #Mandatory, train data index file path
         videos_path: "./data/gtea/Videos"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
     valid:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
-        file_path: "./data/gtea/split_frames/test.split1.bundle" #Mandatory, train data index file path
+        file_path: "./data/gtea/splits/test.split1.bundle" #Mandatory, train data index file path
         videos_path: "./data/gtea/Videos"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
     test:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
-        file_path: "./data/gtea/split_frames/test.split1.bundle" #Mandatory, train data index file path
+        file_path: "./data/gtea/splits/test.split1.bundle" #Mandatory, train data index file path
         videos_path: "./data/gtea/Videos"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
@@ -45,12 +51,10 @@ PIPELINE: #PIPELINE field
             backend: "decord"
         sample:
             name: "VideoStramSampler"
-            sample_len: 60
             seg_len: 1
             sample_rate: 4
             valid_mode: False
             select_left: True
-            with_label: True
         transform: #Mandotary, image transform operator.
             - MultiScaleCrop:
                 target_size: 224
@@ -67,12 +71,10 @@ PIPELINE: #PIPELINE field
             backend: "decord"
         sample:
             name: "VideoStramSampler"
-            sample_len: 60
             seg_len: 1
             sample_rate: 4
             valid_mode: True
             select_left: True
-            with_label: True
         transform:
             - Scale:
                 short_size: 256
@@ -90,12 +92,10 @@ PIPELINE: #PIPELINE field
             backend: "decord"
         sample:
             name: "VideoStramSampler"
-            sample_len: 60
             seg_len: 1
             sample_rate: 4
             valid_mode: True
             select_left: True
-            with_label: True
         transform:
             - Scale:
                 short_size: 256
@@ -122,7 +122,11 @@ OPTIMIZER: #OPTIMIZER field
         value: 20.0
 
 METRIC:
-    name: 'CenterCropMetric'
+    name: 'SegmentationMetric'
+    overlap: [.1, .25, .5]
+    actions_map_file_path: "./data/gtea/mapping.txt"
+    tolerance: 5
+    boundary_threshold: 0.7
 
 INFERENCE:
     name: 'ppTSM_Inference_helper'
@@ -130,7 +134,7 @@ INFERENCE:
     target_size: 224
 
 model_name: "TSM"
-log_interval: 20 #Optional, the interal of logger, default:10
+log_interval: 1 #Optional, the interal of logger, default:10
 save_interval: 10
 epochs: 50 #Mandatory, total epoch
 log_level: "INFO" #Optional, the logger level. default: "INFO"

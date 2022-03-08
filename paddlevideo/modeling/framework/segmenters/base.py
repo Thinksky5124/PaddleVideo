@@ -72,6 +72,7 @@ class BaseSegmenter(nn.Layer):
         3. Set mode='infer' is used for saving inference model, refer to tools/export_model.py
         """
         if mode == 'train':
+            # return self.train_step(data_batch)
             return self.train_step(data_batch, optimizer)
         elif mode == 'valid':
             return self.val_step(data_batch)

@@ -18,13 +18,11 @@ MODEL: #MODEL field
         num_stages: 3 #Optional, the number of stages.
         num_layers: 5 # Optional, the number of layers in each stage.
         num_f_maps: 64 #Optional, the number of channels in each layers.
-        seg_in_channels: 2048 #Optional, the number of channels in input feature.
-        cls_in_channels: 2048 #Optional, the number of channels in input feature.
+        in_channels: 2048 #Optional, the number of channels in input feature.
         sample_rate: 4
         drop_ratio: 0.5 #the ratio of dropout
         std: 0.001 #std value in params initialization
     seg_weight: 1.0
-    cls_weight: 1.0
 
 MIX:
     name: "BatchCompose"
@@ -32,8 +30,9 @@ MIX:
     sample_rate: 4
 
 DATASET: #DATASET field
-    batch_size: 8 #Mandatory, bacth size
-    num_workers: 4 #Mandatory, XXX the number of subprocess on each GPU.
+    batch_size: 6 #Mandatory, bacth size
+    num_workers: 3 #Mandatory, XXX the number of subprocess on each GPU.
+    test_batch_size: 6
     train:
         format: "SegmentationDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         data_prefix: "./" #Mandatory, train data root path
@@ -125,10 +124,10 @@ OPTIMIZER: #OPTIMIZER field
     learning_rate: #Mandatory, the type of learning rate scheduler, associate to the 'paddlevideo/solver/'
         name: 'PiecewiseDecay'
         boundaries: [15, 35]
-        values: [0.001, 0.0005, 0.0001]  #1 cards * 12 batch size
+        values: [0.0005, 0.0005, 0.0001]  #1 cards * 12 batch size
     weight_decay:
         name: 'L2'
-        value: 0.0004
+        value: 0.0001
     grad_clip:
         name: 'ClipGradByGlobalNorm'
         value: 20.0

@@ -102,7 +102,7 @@ class SingleStageModel(nn.Layer):
         if mask is None:
             out = self.conv_out(out)
         else:
-            out = self.conv_out(out) * mask
+            out = self.conv_out(out) * mask[:, 0:1, :]
         return out
 
 
@@ -125,7 +125,7 @@ class DilatedResidualLayer(nn.Layer):
         if mask is None:
             out = (x + out)
         else:
-            out = (x + out) * mask
+            out = (x + out) * mask[:, 0:1, :]
         return out
 
 

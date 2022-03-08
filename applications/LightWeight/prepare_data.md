@@ -52,6 +52,10 @@ python tools/export_model.py -c applications/LightWeight/config/split/50salads/t
                                 -p output/TSM/TSM_best.pdparams \
                                 -o inference/TSM
 
+python tools/export_model.py -c applications/LightWeight/config/split/50salads/tsm_extractor_50salads.yaml \
+                                -p output/ETEMSTCN/ETEMSTCN_epoch_00011.pdparams \
+                                -o inference/TSM
+
 # use infer model to extract video feature
 python applications/LightWeight/extractor.py --input_file data/gtea/Videos \
                            --output_path data/gtea/extract_features \

@@ -2,7 +2,7 @@
 Author: Thyssen Wen
 Date: 2022-03-04 19:01:30
 LastEditors: Thyssen Wen
-LastEditTime: 2022-03-05 21:08:03
+LastEditTime: 2022-03-07 20:38:39
 Description: file content
 FilePath: /PaddleVideo/applications/LightWeight/sliding_train.py
 '''

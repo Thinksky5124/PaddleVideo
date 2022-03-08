@@ -66,7 +66,7 @@ class ETENeck(BaseNeck):
         
         self.pos_embedding = PositionalEmbedding(self.buffer_channels, self.max_len)
 
-    def forward(self, x, memery_buffer, num_segs, start_frame):
+    def forward(self, x, seg_mask, memery_buffer, mask_buffer, num_segs, start_frame):
         """ ETEHead forward
         """
         # x.shape = [N * num_segs, 2048, 7, 7]
@@ -82,7 +82,7 @@ class ETENeck(BaseNeck):
         seg_feature = paddle.transpose(seg_feature, perm=[0, 2, 1]) 
 
         # # [N, buffer_channels, num_segs]
-        # seg_feature = self.reduce_conv(seg_feature)
+        # seg_feature = self.reduce_conv(seg_feature * seg_mask[:, 0:1, :])
         # # position encoding
         # # [N, num_segs, buffer_channels]
         # end_frame = start_frame + num_segs
@@ -95,23 +95,25 @@ class ETENeck(BaseNeck):
         # if memery_buffer is None:
         #     # [N, buffer_channels, num_segs * clip_buffer_num]
         #     zeros_pad = paddle.zeros((seg_feature.shape[0], self.buffer_channels, num_segs * self.clip_buffer_num))
+        #     mask_zeros_pad = paddle.zeros((seg_mask.shape[0], seg_mask.shape[1], num_segs * self.clip_buffer_num))
         #     # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
         #     pad_feature = paddle.concat([zeros_pad, seg_feature], axis=2)
+        #     pad_mask = paddle.concat([mask_zeros_pad, seg_mask],axis=2)
         #     # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
-        #     seg_feature = self.causal_conv(pad_feature)
+        #     seg_feature = self.causal_conv(pad_feature, pad_mask)
         #     # [N, buffer_channels, num_segs * clip_buffer_num]
-        #     memery_buffer = paddle.roll(seg_feature, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone()
-        #     memery_buffer.stop_gradient = True
+        #     memery_buffer = paddle.roll(seg_feature, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone().detach()
+        #     mask_buffer = paddle.roll(pad_mask, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone()
         # else:
         #     # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
         #     pad_feature = paddle.concat([memery_buffer, seg_feature], axis=2)
+        #     pad_mask = paddle.concat([mask_buffer, seg_mask],axis=2)
         #     # [N, buffer_channels, num_segs * (clip_buffer_num + 1)]
-        #     seg_feature = self.causal_conv(pad_feature)
+        #     seg_feature = self.causal_conv(pad_feature, pad_mask)
         #     # [N, buffer_channels, num_segs * clip_buffer_num]
-        #     memery_buffer = paddle.roll(seg_feature, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone()
-        #     memery_buffer.stop_gradient = True
-
-        return seg_feature, x, memery_buffer
+        #     memery_buffer = paddle.roll(seg_feature, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone().detach()
+        #     mask_buffer = paddle.roll(pad_mask, shifts=self.sliding_strike, axis=2)[:, :, :(num_segs * self.clip_buffer_num)].clone()
+        return seg_feature, memery_buffer, mask_buffer
 
     def init_weights(self):
         for layer in self.sublayers():
