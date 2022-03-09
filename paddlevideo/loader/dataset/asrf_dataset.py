@@ -67,14 +67,17 @@ class ASRFDataset(BaseDataset):
         # load boundary
         file_name = video_name.split('.')[0] + ".npy"
         boundary_file_path = os.path.join(self.boundary_path, file_name)
-        boundary = np.expand_dims(np.load(boundary_file_path),axis=0).astype(np.float32)
+        boundary = np.expand_dims(np.load(boundary_file_path),
+                                  axis=0).astype(np.float32)
 
         results['video_feat'] = copy.deepcopy(video_feat)
         results['video_label'] = copy.deepcopy(label)
         results['video_boundary'] = copy.deepcopy(boundary)
+        results['video_name'] = copy.deepcopy(video_name)
 
         results = self.pipeline(results)
-        return results['video_feat'], results['video_label'], results['video_boundary']
+        return results['video_feat'], results['video_label'], results[
+            'video_boundary'], results['video_name']
 
     def prepare_test(self, idx):
         """TEST: Prepare the data for test given the index."""
@@ -94,11 +97,14 @@ class ASRFDataset(BaseDataset):
         # load boundary
         file_name = video_name.split('.')[0] + ".npy"
         boundary_file_path = os.path.join(self.boundary_path, file_name)
-        boundary = np.expand_dims(np.load(boundary_file_path),axis=0).astype(np.float32)
+        boundary = np.expand_dims(np.load(boundary_file_path),
+                                  axis=0).astype(np.float32)
 
         results['video_feat'] = copy.deepcopy(video_feat)
         results['video_label'] = copy.deepcopy(label)
         results['video_boundary'] = copy.deepcopy(boundary)
+        results['video_name'] = copy.deepcopy(video_name)
 
         results = self.pipeline(results)
-        return results['video_feat'], results['video_label'], results['video_boundary']
+        return results['video_feat'], results['video_label'], results[
+            'video_boundary'], results['video_name']

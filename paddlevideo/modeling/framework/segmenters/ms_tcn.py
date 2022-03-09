@@ -39,7 +39,7 @@ class MSTCN(BaseSegmenter):
     def train_step(self, data_batch):
         """Training step.
         """
-        video_feat, video_gt = data_batch
+        video_feat, video_gt, _ = data_batch
 
         # call forward
         output = self.forward_net(video_feat)
@@ -58,7 +58,7 @@ class MSTCN(BaseSegmenter):
     def val_step(self, data_batch):
         """Validating setp.
         """
-        video_feat, video_gt = data_batch
+        video_feat, video_gt, _ = data_batch
 
         # call forward
         output = self.forward_net(video_feat)
@@ -77,7 +77,7 @@ class MSTCN(BaseSegmenter):
     def test_step(self, data_batch):
         """Testing setp.
         """
-        video_feat, _ = data_batch
+        video_feat, _, _ = data_batch
 
         outputs_dict = dict()
         # call forward

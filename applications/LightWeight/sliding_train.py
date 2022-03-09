@@ -1,3 +1,11 @@
+'''
+Author: Thyssen Wen
+Date: 2022-03-04 19:01:30
+LastEditors: Thyssen Wen
+LastEditTime: 2022-03-07 20:38:39
+Description: file content
+FilePath: /PaddleVideo/applications/LightWeight/sliding_train.py
+'''
 # copyright (c) 2020 PaddlePaddle Authors. All Rights Reserve.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,14 +29,15 @@ import paddle.distributed as dist
 import paddle.distributed.fleet as fleet
 from paddlevideo.utils import (add_profiler_step, build_record, get_logger,
                                load, log_batch, log_epoch, mkdir, save)
-from ..loader.builder import build_dataloader, build_dataset
-from ..metrics.ava_utils import collect_results_cpu
-from ..modeling.builder import build_model
-from ..solver import build_lr, build_optimizer
-from ..utils import do_preciseBN
+from paddlevideo.loader.builder import build_dataloader, build_dataset
+from paddlevideo.metrics.ava_utils import collect_results_cpu
+from paddlevideo.modeling.builder import build_model
+from paddlevideo.solver import build_lr, build_optimizer
+from paddlevideo.utils import do_preciseBN
+from paddlevideo.metrics import SegmentationMetric
+from paddlevideo.metrics import build_metric
 
-
-def train_model(cfg,
+def sliding_train_model(cfg,
                 weights=None,
                 parallel=True,
                 validate=True,
@@ -92,7 +101,7 @@ def train_model(cfg,
     model_name = cfg.model_name
     output_dir = cfg.get("output_dir", f"./output/{model_name}")
     mkdir(output_dir)
-
+    
     # 1. Construct model
     model = build_model(cfg.MODEL)
     if parallel:
@@ -109,6 +118,10 @@ def train_model(cfg,
                                     places=places)
 
     train_loader = build_dataloader(train_dataset, **train_dataloader_setting)
+    # build metirc
+    cfg.METRIC.data_size = len(train_dataset)
+    cfg.METRIC.batch_size = batch_size
+    Metric = build_metric(cfg.METRIC)
 
     if validate:
         valid_dataset = build_dataset((cfg.DATASET.valid, cfg.PIPELINE.valid))
@@ -116,6 +129,7 @@ def train_model(cfg,
             batch_size=valid_batch_size,
             num_workers=valid_num_workers,
             places=places,
+            collate_fn_cfg=cfg.get('MIX', None),
             drop_last=False,
             shuffle=cfg.DATASET.get(
                 'shuffle_valid',
@@ -203,7 +217,7 @@ def train_model(cfg,
                     scaler.minimize(optimizer, scaled)
                     optimizer.clear_grad()
             else:
-                outputs = model(data, mode='train')
+                outputs = model(data, optimizer, mode='train')
                 avg_loss = outputs['loss']
                 if use_gradient_accumulation:
                     # clear grad at when epoch begins
@@ -218,12 +232,13 @@ def train_model(cfg,
                         optimizer.step()
                         optimizer.clear_grad()
                 else:  # general case
-                    # 4.2 backward
-                    avg_loss.backward()
-                    # 4.3 minimize
-                    optimizer.step()
-                    optimizer.clear_grad()
-
+                    Metric.update(i, data, outputs)
+                    # # 4.2 backward
+                    # avg_loss.backward()
+                    # # 4.3 minimize
+                    # optimizer.step()
+                    # optimizer.clear_grad()
+        
             # log record
             record_list['lr'].update(optimizer.get_lr(), batch_size)
             for name, value in outputs.items():
@@ -241,6 +256,9 @@ def train_model(cfg,
             # learning rate iter step
             if cfg.OPTIMIZER.learning_rate.get("iter_step"):
                 lr.step()
+
+        # metric output
+        Metric.accumulate()
 
         # learning rate epoch step
         if not cfg.OPTIMIZER.learning_rate.get("iter_step"):
@@ -262,6 +280,7 @@ def train_model(cfg,
             #single_gpu_test and multi_gpu_test
             for i, data in enumerate(valid_loader):
                 outputs = model(data, mode='valid')
+                Metric.update(i, data, outputs)
 
                 if cfg.MODEL.framework == "FastRCNN":
                     results.extend(outputs)
@@ -279,6 +298,10 @@ def train_model(cfg,
                     ips = "ips: {:.5f} instance/sec.".format(
                         valid_batch_size / record_list["batch_time"].val)
                     log_batch(record_list, i, epoch + 1, cfg.epochs, "val", ips)
+            
+            # metric output
+            Metric_dict = Metric.accumulate()
+            
 
             if cfg.MODEL.framework == "FastRCNN":
                 if parallel:
@@ -300,9 +323,16 @@ def train_model(cfg,
                     best = record_list["mAP@0.5IOU"].val
                     best_flag = True
                 return best, best_flag
+            
+            if cfg.MODEL.framework == "ETE" and (not parallel or
+                                                      (parallel and rank == 0)):
+                if Metric_dict["F1@0.50"] > best:
+                    best = Metric_dict["F1@0.50"]
+                    best_flag = True
+                return best, best_flag
 
             # forbest2, cfg.MODEL.framework != "FastRCNN":
-            for top_flag in ['hit_at_one', 'top1', 'rmse', "F1@0.50"]:
+            for top_flag in ['hit_at_one', 'top1', 'rmse']:
                 if record_list.get(top_flag):
                     if top_flag != 'rmse' and record_list[top_flag].avg > best:
                         best = record_list[top_flag].avg

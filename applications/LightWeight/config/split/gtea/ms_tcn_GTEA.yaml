@@ -21,19 +21,19 @@ DATASET: #DATASET field
     train:
         format: "MSTCNDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         file_path: "./data/gtea/splits/train.split4.bundle" #Mandatory, train data index file path
-        feature_path: "./data/gtea/features"
+        feature_path: "./data/gtea/extract_features"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
     valid:
         format: "MSTCNDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         file_path: "./data/gtea/splits/test.split4.bundle" #Mandatory, valid data index file path
-        feature_path: "./data/gtea/features"
+        feature_path: "./data/gtea/extract_features"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
     test:
         format: "MSTCNDataset" #Mandatory, indicate the type of dataset, associate to the 'paddlevidel/loader/dateset'
         file_path: "./data/gtea/splits/test.split4.bundle" #Mandatory, test data index file path
-        feature_path: "./data/gtea/features"
+        feature_path: "./data/gtea/extract_features"
         gt_path: "./data/gtea/groundTruth"
         actions_map_file_path: "./data/gtea/mapping.txt"
 
@@ -77,7 +77,7 @@ INFERENCE:
     name: 'MSTCN_Inference_helper'
     num_channels: 2048
     actions_map_file_path: "./data/gtea/mapping.txt"
-    feature_path: "./data/gtea/features"
+    feature_path: "./data/gtea/extract_features"
 
 
 model_name: "MSTCN"

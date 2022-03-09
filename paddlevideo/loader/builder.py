@@ -113,6 +113,7 @@ def build_dataloader(dataset,
         num_workers=num_workers,
         collate_fn=mix_collate_fn if collate_fn_cfg is not None else None,
         return_list=True,
+        use_shared_memory=False,
         **kwargs)
 
     return data_loader

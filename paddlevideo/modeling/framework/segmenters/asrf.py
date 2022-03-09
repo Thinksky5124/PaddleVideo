@@ -51,7 +51,7 @@ class ASRF(BaseSegmenter):
     def train_step(self, data_batch):
         """Training step.
         """
-        feature, label, boundary = data_batch
+        feature, label, boundary, _ = data_batch
         # call forward
         outputs_cls, outputs_boundary = self.forward_net(feature)
 
@@ -80,7 +80,7 @@ class ASRF(BaseSegmenter):
     def val_step(self, data_batch):
         """Validating setp.
         """
-        feature, label, boundary = data_batch
+        feature, label, boundary, _ = data_batch
 
         # call forward
         outputs_cls, outputs_boundary = self.forward_net(feature)
@@ -109,7 +109,7 @@ class ASRF(BaseSegmenter):
     def test_step(self, data_batch):
         """Testing setp.
         """
-        feature, _, _ = data_batch
+        feature, _, _, _ = data_batch
 
         outputs_dict = dict()
         # call forward

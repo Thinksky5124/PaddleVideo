@@ -5,6 +5,8 @@ import os
 
 from tqdm import tqdm
 
+ignore_action_list = ["background", "None"]
+
 
 def generate_mapping_list_txt(action_dict, out_path):
     out_txt_file_path = os.path.join(out_path, "mapping.txt")
@@ -28,6 +30,7 @@ def segmentation_convert_localization_label(prefix_data_path, out_path,
     labels_list = []
     for label_name in tqdm(label_txt_name_list, desc='label convert:'):
         label_dict = {}
+        # Todos: according video format change
         label_dict["url"] = label_name.split(".")[0] + ".mp4"
         label_txt_path = os.path.join(prefix_data_path, label_name)
 
@@ -43,7 +46,7 @@ def segmentation_convert_localization_label(prefix_data_path, out_path,
                 before_action_name = gt[index]
         actions_list = []
         for index in range(len(boundary_index_list) - 1):
-            if gt[boundary_index_list[index]] != "None":
+            if gt[boundary_index_list[index]] not in ignore_action_list:
                 action_name = gt[boundary_index_list[index]]
                 start_sec = float(boundary_index_list[index]) / float(fps)
                 end_sec = float(boundary_index_list[index + 1] - 1) / float(fps)
@@ -51,14 +54,17 @@ def segmentation_convert_localization_label(prefix_data_path, out_path,
                 label_action_dict = {}
                 label_action_dict["label_names"] = action_name
                 label_action_dict["start_id"] = start_sec
+                label_action_dict["start_frame"] = boundary_index_list[index]
                 label_action_dict["end_id"] = end_sec
-                label_action_dict["label_ids"] = [action_id]
+                label_action_dict["end_frame"] = boundary_index_list[index +
+                                                                     1] - 1
+                label_action_dict["label_ids"] = action_id
                 actions_list.append(label_action_dict)
 
         label_dict["actions"] = actions_list
         labels_list.append(label_dict)
     labels_dict["gts"] = labels_list
-    output_path = os.path.join(out_path, "output.json")
+    output_path = os.path.join(out_path, "label.json")
     f = open(output_path, "w", encoding='utf-8')
     f.write(json.dumps(labels_dict, indent=4))
     f.close()
@@ -156,7 +162,7 @@ def main():
             segmentation_convert_localization_label(args.data_path,
                                                     args.out_path,
                                                     action_dict,
-                                                    fps=25.0)
+                                                    fps=args.fps)
 
     else:
         raise NotImplementedError
@@ -186,6 +192,12 @@ def get_arguments():
         type=str,
         default="segmentation",
         help="Convert segmentation label or localization label.",
+    )
+    parser.add_argument(
+        "--fps",
+        type=float,
+        default=15.0,
+        help="Convert label fps.",
     )
 
     return parser.parse_args()

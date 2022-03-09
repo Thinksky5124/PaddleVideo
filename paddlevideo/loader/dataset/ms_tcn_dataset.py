@@ -73,16 +73,18 @@ class MSTCNDataset(BaseDataset):
         target_file_path = os.path.join(self.gt_path, video_name)
         file_ptr = open(target_file_path, 'r')
         content = file_ptr.read().split('\n')[:-1]
-        classes = np.zeros(min(np.shape(video_feat)[1], len(content)), dtype='int64')
+        classes = np.zeros(min(np.shape(video_feat)[1], len(content)),
+                           dtype='int64')
         for i in range(len(classes)):
             classes[i] = self.actions_dict[content[i]]
         # classes = classes * (-100)
 
         results['video_feat'] = copy.deepcopy(video_feat)
         results['video_gt'] = copy.deepcopy(classes)
+        results['video_name'] = copy.deepcopy(video_name)
 
         results = self.pipeline(results)
-        return results['video_feat'], results['video_gt']
+        return results['video_feat'], results['video_gt'], results['video_name']
 
     def prepare_test(self, idx):
         """TEST: Prepare the data for test given the index."""
@@ -105,6 +107,7 @@ class MSTCNDataset(BaseDataset):
 
         results['video_feat'] = copy.deepcopy(video_feat)
         results['video_gt'] = copy.deepcopy(classes)
+        results['video_name'] = copy.deepcopy(video_name)
 
         results = self.pipeline(results)
-        return results['video_feat'], results['video_gt']
+        return results['video_feat'], results['video_gt'], results['video_name']

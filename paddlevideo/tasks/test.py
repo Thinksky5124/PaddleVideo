@@ -56,6 +56,7 @@ def test_model(cfg, weights, parallel=True):
     dataloader_setting = dict(batch_size=batch_size,
                               num_workers=num_workers,
                               places=places,
+                              collate_fn_cfg=cfg.get('MIX', None),
                               drop_last=False,
                               shuffle=False)
 

@@ -149,7 +149,7 @@ def main():
         output_tensor_list.append(predictor.get_output_handle(item))
 
     # get the absolute file path(s) to be processed
-    if model_name in ["MSTCN", "ASRF"]:
+    if model_name in ["MSTCN", "ASRF", "ETEMSTCN"]:
         files = InferenceHelper.get_process_file(args.input_file)
     else:
         files = parse_file_paths(args.input_file)

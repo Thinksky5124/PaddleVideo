@@ -20,7 +20,7 @@ import paddle
 from paddlevideo.tasks import (test_model, train_dali, train_model,
                                train_model_multigrid)
 from paddlevideo.utils import get_config, get_dist_info
-
+from applications.LightWeight.sliding_train import sliding_train_model
 
 def parse_args():
     parser = argparse.ArgumentParser("PaddleVideo train script")
@@ -110,7 +110,8 @@ def main():
                               world_size=world_size,
                               validate=args.validate)
     else:
-        train_model(cfg,
+        if cfg.MODEL.framework == "ETE":
+            sliding_train_model(cfg,
                     weights=args.weights,
                     parallel=parallel,
                     validate=args.validate,
@@ -118,6 +119,15 @@ def main():
                     amp=args.amp,
                     max_iters=args.max_iters,
                     profiler_options=args.profiler_options)
+        else:
+            train_model(cfg,
+                        weights=args.weights,
+                        parallel=parallel,
+                        validate=args.validate,
+                        use_fleet=args.fleet,
+                        amp=args.amp,
+                        max_iters=args.max_iters,
+                        profiler_options=args.profiler_options)
 
 
 if __name__ == '__main__':

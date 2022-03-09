@@ -47,9 +47,10 @@ from paddlevideo.loader.pipelines import (
     GroupResize, Image2Array, ImageDecoder, JitterScale, MultiCrop,
     Normalization, PackOutput, Sampler, SamplerPkl, Scale, SkeletonNorm,
     TenCrop, ToArray, UniformCrop, VideoDecoder, SegmentationSampler,
-    SketeonCropSample)
+    SketeonCropSample, VideoStramSampler)
 from paddlevideo.metrics.ava_utils import read_labelmap
 from paddlevideo.metrics.bmn_metric import boundary_choose, soft_nms
+from paddlevideo.modeling.framework.segmenters.utils import ASRFPostProcessing
 from paddlevideo.utils import Registry, build, get_config
 from paddlevideo.modeling.framework.segmenters.utils import ASRFPostProcessing
 
@@ -1459,3 +1460,119 @@ class AVA_SlowFast_FastRCNN_Inference_helper(Base_Inference_helper):
         # delete tmp files and dirs
         shutil.rmtree(self.frame_dir)
         shutil.rmtree(self.detection_result_dir)
+
+
+@INFERENCE.register()
+class ETEMSTCN_Inference_helper(Base_Inference_helper):
+
+    def __init__(self,
+                 actions_map_file_path,
+                 videos_path,
+                 num_seg=15,
+                 sample_len=60,
+                 seg_len=1,
+                 sample_rate=4,
+                 short_size=256,
+                 target_size=224,
+                 backend="decord"):
+        file_ptr = open(actions_map_file_path, 'r')
+        actions = file_ptr.read().split('\n')[:-1]
+        file_ptr.close()
+        self.actions_dict = dict()
+        for a in actions:
+            self.actions_dict[a.split()[1]] = int(a.split()[0])
+
+        self.videos_path = videos_path
+        self.file_name_list = []
+
+        self.backend = backend
+        self.sample_len = sample_len
+        self.seg_len = seg_len
+        self.sample_rate = sample_rate
+        self.short_size = short_size
+        self.target_size = target_size
+        self.num_seg = num_seg
+
+    def parse_file_paths(self, input_path):
+        file_ptr = open(input_path, 'r')
+        info = file_ptr.read().split('\n')[:-1]
+        file_ptr.close()
+        return info
+
+    def get_process_file(self, input_file_txt):
+        video_segment_lists = self.parse_file_paths(input_file_txt)
+        info = []
+        for video_segment in video_segment_lists:
+            video_name = video_segment.split(' ')[0].split('.')[0]
+            start_frame = int(video_segment.split(' ')[1])
+            end_frame = int(video_segment.split(' ')[2])
+
+            video_path = os.path.join(self.videos_path, video_name + '.mp4')
+            if not os.path.isfile(video_path):
+                video_path = os.path.join(self.videos_path, video_name + '.avi')
+                if not os.path.isfile(video_path):
+                    raise NotImplementedError
+            self.file_name_list.append(video_name)
+            info.append(
+                dict(filename=video_path,
+                     video_name=video_name,
+                     start_frame=start_frame,
+                     end_frame=end_frame))
+        return info
+
+    def preprocess(self, infer_dict):
+        """
+        input_file: list, infer file dict list
+        return: list
+        """
+
+        img_mean = [0.551, 0.424, 0.179]
+        img_std = [0.133, 0.141, 0.124]
+        ops = [
+            VideoDecoder(backend=self.backend),
+            VideoStramSampler(sample_len=self.sample_len,
+                              seg_len=self.seg_len,
+                              sample_rate=self.sample_rate,
+                              valid_mode=True,
+                              select_left=True,
+                              with_label=False),
+            Scale(self.short_size, fixed_ratio=False),
+            CenterCrop(self.target_size),
+            Image2Array(),
+            Normalization(img_mean, img_std)
+        ]
+
+        for op in ops:
+            results = op(infer_dict)
+
+        res = np.expand_dims(results['imgs'], axis=0).copy()
+        return [res]
+
+    def postprocess(self, output, print_output=True):
+        reslut_path = os.path.join("./inference/infer_results/")
+        if not os.path.isdir(reslut_path):
+            os.makedirs(reslut_path)
+        output = [output]
+        for outputs in output:
+            output_np = outputs[0]
+            if len(output_np.shape) < 2:
+                output_np = np.expand_dims(output_np, axis=0)
+
+            for b_id in range(output_np.shape[0]):
+                prediction = output_np[b_id, :]
+                recognition = []
+                for i in range(prediction.shape[0]):
+                    recognition = np.concatenate((recognition, [
+                        list(self.actions_dict.keys())[list(
+                            self.actions_dict.values()).index(prediction[i])]
+                    ]))
+                recog_content = list(recognition)
+                recog_content = [line + "\n" for line in recog_content]
+
+                filename = self.file_name_list.pop(0)
+
+                write_path = os.path.join(reslut_path, filename + ".txt")
+                f = open(write_path, "a")
+                f.writelines(recog_content)
+                f.close()
+                print("result write in : " + write_path)

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .registry import BACKBONES, HEADS, LOSSES, RECOGNIZERS, LOCALIZERS, ROI_EXTRACTORS, DETECTORS, BBOX_ASSIGNERS, BBOX_SAMPLERS, BBOX_CODERS, PARTITIONERS, MULTIMODAL, SEGMENT, SEGMENTERS
+from .registry import BACKBONES, HEADS, LOSSES, RECOGNIZERS, LOCALIZERS, ROI_EXTRACTORS, DETECTORS, BBOX_ASSIGNERS, BBOX_SAMPLERS, BBOX_CODERS, PARTITIONERS, MULTIMODAL, SEGMENT, SEGMENTERS, NECKS
 from ..utils import build
 from .registry import (BACKBONES, BBOX_ASSIGNERS, BBOX_CODERS, BBOX_SAMPLERS,
                        DETECTORS, ESTIMATORS, HEADS, LOCALIZERS, LOSSES,
@@ -102,6 +102,11 @@ def build_multimodal(cfg):
 def build_segment(cfg):
     """Build segment."""
     return build(cfg, SEGMENT, key='framework')
+
+
+def build_neck(cfg):
+    """Build segment."""
+    return build(cfg, NECKS)
 
 
 def build_model(cfg):
