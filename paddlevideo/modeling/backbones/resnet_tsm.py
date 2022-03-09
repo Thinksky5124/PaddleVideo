@@ -169,7 +169,7 @@ class BasicBlock(nn.Layer):
         self.conv0 = ConvBNLayer(
             in_channels=in_channels,
             out_channels=out_channels,
-            filter_size=3,
+            kernel_size=3,
             stride=stride,
             act="relu",
             name=name + "_branch2a",
@@ -178,7 +178,7 @@ class BasicBlock(nn.Layer):
         self.conv1 = ConvBNLayer(
             in_channels=out_channels,
             out_channels=out_channels,
-            filter_size=3,
+            kernel_size=3,
             act=None,
             name=name + "_branch2b",
             data_format=data_format,
@@ -188,7 +188,7 @@ class BasicBlock(nn.Layer):
             self.short = ConvBNLayer(
                 in_channels=in_channels,
                 out_channels=out_channels,
-                filter_size=1,
+                kernel_size=1,
                 stride=stride,
                 name=name + "_branch1",
                 data_format=data_format,
@@ -238,7 +238,17 @@ class ResNetTSM(nn.Layer):
         elif self.layers == 152:
             depth = [3, 8, 36, 3]
 
-        in_channels = 64
+        
+        if self.layers == 18:
+            in_channels = [64, 64, 128, 256]
+        elif self.layers == 34:
+            in_channels = [64, 64, 128, 256]
+        elif self.layers == 50:
+            in_channels = 64
+        elif self.layers == 101:
+            in_channels = 64
+        elif self.layers == 152:
+            in_channels = 64
         out_channels = [64, 128, 256, 512]
 
         self.conv = ConvBNLayer(in_channels=3,

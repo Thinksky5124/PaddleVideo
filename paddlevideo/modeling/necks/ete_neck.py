@@ -12,17 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from curses.ascii import BS
-from tkinter.messagebox import NO
 import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
 from .base import BaseNeck
 from ..registry import NECKS
 import numpy as np
-import copy
-import random
-import math
 
 from paddle import ParamAttr
 from ..weight_init import weight_init_
@@ -38,6 +33,7 @@ class ETENeck(BaseNeck):
                  buffer_channels,
                  hidden_channels,
                  num_layers,
+                 num_segs=15,
                  clip_buffer_num=3,
                  sliding_strike=15,
                  max_len=10000,
@@ -55,6 +51,7 @@ class ETENeck(BaseNeck):
         self.clip_buffer_num = clip_buffer_num
         self.sliding_strike = sliding_strike
         self.max_len = max_len
+        self.num_segs = num_segs
 
         self.causal_conv = SingleStageModel(self.num_layers, self.hidden_channels,
                                        self.buffer_channels, self.buffer_channels)
@@ -66,7 +63,7 @@ class ETENeck(BaseNeck):
         
         self.pos_embedding = PositionalEmbedding(self.buffer_channels, self.max_len)
 
-    def forward(self, x, seg_mask, memery_buffer, mask_buffer, num_segs, start_frame):
+    def forward(self, x, seg_mask, memery_buffer, mask_buffer, start_frame):
         """ ETEHead forward
         """
         # x.shape = [N * num_segs, 2048, 7, 7]
@@ -77,7 +74,7 @@ class ETENeck(BaseNeck):
         # [N * num_segs, 2048]
         seg_x = paddle.squeeze(x)
         # [N, num_segs, 2048]
-        seg_feature = paddle.reshape(seg_x, shape=[-1, num_segs, seg_x.shape[-1]])  
+        seg_feature = paddle.reshape(seg_x, shape=[-1, self.num_segs, seg_x.shape[-1]])  
         # [N, 2048, num_segs]
         seg_feature = paddle.transpose(seg_feature, perm=[0, 2, 1]) 
 
@@ -85,7 +82,7 @@ class ETENeck(BaseNeck):
         # seg_feature = self.reduce_conv(seg_feature * seg_mask[:, 0:1, :])
         # # position encoding
         # # [N, num_segs, buffer_channels]
-        # end_frame = start_frame + num_segs
+        # end_frame = start_frame + self.num_segs
         # pos_emb = self.pos_embedding(seg_feature.shape[0], start_frame, end_frame)
         # # [N, buffer_channels, num_segs]
         # pos_emb = paddle.transpose(pos_emb, perm=[0, 2, 1]) 

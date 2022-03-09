@@ -121,8 +121,8 @@ class BatchCompose(object):
             list(batch[batch_id])
             # imgs
             pad_imgs_len = max_imgs_len - batch[batch_id][0].shape[0]
-            # pad_imgs = np.zeros([pad_imgs_len] + list(batch[batch_id][0].shape[1:]), dtype=batch[batch_id][0].dtype)
-            pad_imgs = np.random.normal(size = [pad_imgs_len] + list(batch[batch_id][0].shape[1:])).astype(batch[batch_id][0].dtype)
+            pad_imgs = np.zeros([pad_imgs_len] + list(batch[batch_id][0].shape[1:]), dtype=batch[batch_id][0].dtype)
+            # pad_imgs = np.random.normal(size = [pad_imgs_len] + list(batch[batch_id][0].shape[1:])).astype(batch[batch_id][0].dtype)
             mini_batch_list.append(np.concatenate([batch[batch_id][0], pad_imgs], axis=0))
             # lables
             pad_labels_len = max_labels_len - batch[batch_id][1].shape[0]

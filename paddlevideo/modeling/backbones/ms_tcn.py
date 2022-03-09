@@ -98,7 +98,7 @@ class SingleStageModel(nn.Layer):
     def forward(self, x, mask=None):
         out = self.conv_in(x)
         for layer in self.layers:
-            out = layer(out)
+            out = layer(out, mask)
         if mask is None:
             out = self.conv_out(out)
         else:

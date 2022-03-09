@@ -49,31 +49,23 @@ class ETEHead(TSNHead):
                          std=std,
                          data_format=data_format,
                          **kwargs)
-        self.ce = nn.CrossEntropyLoss(ignore_index=-100)
-        self.ce_soft = nn.CrossEntropyLoss(ignore_index=-100, soft_label=True, reduction='none')
+        self.ce = nn.CrossEntropyLoss(ignore_index=-100, use_softmax=True, reduction='none')
         self.mse = nn.MSELoss(reduction='none')
         self.num_classes = num_classes
         self.sample_rate = sample_rate
-        self.softmax_seg = nn.Softmax(axis=2)
 
         self.epls = 1e-6
 
         # cls score
         self.overlap = 0.5
-
+        self.embed_bn_norm = nn.BatchNorm1D(in_channels)
         self.stage1 = SingleStageModel(num_layers, num_f_maps, in_channels, num_classes)
         self.stages = nn.LayerList([
             copy.deepcopy(
                 SingleStageModel(num_layers, num_f_maps, num_classes,
                                  num_classes)) for s in range(num_stages - 1)
         ])
-
-        self.fc = Linear(self.in_channels,
-                         self.num_classes,
-                         weight_attr=ParamAttr(learning_rate=5.0,
-                                               regularizer=L2Decay(1e-4)),
-                         bias_attr=ParamAttr(learning_rate=10.0,
-                                             regularizer=L2Decay(0.0)))
+        self.drop = nn.Dropout(p=self.drop_ratio)
 
         assert (data_format in [
             'NCHW', 'NHWC'
@@ -81,11 +73,8 @@ class ETEHead(TSNHead):
 
         self.data_format = data_format
 
-        self.stdv = std
-
     def init_weights(self):
         """Initiate the FC layer parameters"""
-        weight_init_(self.fc, 'Normal', 'fc_0.w_0', 'fc_0.b_0', std=self.stdv)
         for layer in self.sublayers():
             if isinstance(layer, nn.Conv1D):
                 layer.weight.set_value(
@@ -100,30 +89,31 @@ class ETEHead(TSNHead):
         # segmentation branch
         # seg_feature [N, in_channels, temporal_len]
         # Interploate upsample
-        # ! transpose conv will better?
         seg_x_upsample = F.interpolate(x=seg_feature.unsqueeze(2),
                                        size=[1, seg_feature.shape[-1] * self.sample_rate],
                                        mode="bilinear",
                                        data_format=self.data_format).squeeze(2)
-        # out = self.stage1(seg_x_upsample, seg_mask)
-        # outputs = out.unsqueeze(0)
-        # # seg_feature [stage_num, N, num_class, temporal_len]
-        # for s in self.stages:
-        #     out = s(F.softmax(out, axis=1), seg_mask)
-        #     outputs = paddle.concat((outputs, out.unsqueeze(0)), axis=0)
-        # seg_score = self.softmax_seg(outputs)
+        seg_x_upsample = self.embed_bn_norm(seg_x_upsample)
+        seg_x_upsample = self.drop(seg_x_upsample)
+        out = self.stage1(seg_x_upsample, seg_mask)
+        outputs = out.unsqueeze(0)
+        # seg_feature [stage_num, N, num_class, temporal_len]
+        for s in self.stages:
+            out = s(F.softmax(out, axis=1), seg_mask)
+            outputs = paddle.concat((outputs, out.unsqueeze(0)), axis=0)
+        seg_score = outputs
 
         # classification branch
-        if self.dropout is not None:
-            cls_x = self.dropout(
-                seg_x_upsample)  # [N, in_channels, temporal_len]
-        cls_x = paddle.transpose(seg_x_upsample, [0, 2, 1])
-        cls_x = paddle.reshape(seg_x_upsample, [-1, self.in_channels])# [N * temporal_len, in_channels]
-        score = self.fc(cls_x)  # [N * temporal_len, num_class]
-        seg_score = paddle.reshape(
-            score,
-            [seg_feature.shape[0], -1, score.shape[1]])  # [N, temporal_len, num_class]
-        seg_score = paddle.transpose(seg_score, [0, 2, 1]).unsqueeze(0)
+        # if self.dropout is not None:
+        #     cls_x = self.dropout(
+        #         seg_x_upsample)  # [N, in_channels, temporal_len]
+        # cls_x = paddle.transpose(seg_x_upsample, [0, 2, 1])
+        # cls_x = paddle.reshape(seg_x_upsample, [-1, self.in_channels])# [N * temporal_len, in_channels]
+        # score = self.fc(cls_x)  # [N * temporal_len, num_class]
+        # seg_score = paddle.reshape(
+        #     score,
+        #     [seg_feature.shape[0], -1, score.shape[1]])  # [N, temporal_len, num_class]
+        # seg_score = paddle.transpose(seg_score, [0, 2, 1]).unsqueeze(0)
         # [1, N, num_class, temporal_len]
         return seg_score
 
@@ -136,26 +126,15 @@ class ETEHead(TSNHead):
         ce_y = video_gt
         loss = 0.0
         for batch_id in range(output.shape[0]):
-            # ce_loss = self.ce(ce_x[batch_id, :, :], ce_y[batch_id, :])
-            # loss = ce_loss
-
-            ce_gt_onehot = F.one_hot(
-            ce_y[batch_id, :], num_classes=self.num_classes)  # shape [T, num_classes]
-            cls_mask = paddle.sum(ce_gt_onehot, axis=1) != 0
-            cls_mask = paddle.cast(cls_mask, 'float32')
-
-            # one = paddle.to_tensor([1.], dtype='float32')
-            # fg_label = paddle.greater_equal(ce_gt_onehot, one)
-            # fg_num = paddle.sum(paddle.cast(fg_label, dtype='float32'))
-            ce_loss = F.sigmoid_focal_loss(ce_x[batch_id, :, :], ce_gt_onehot, reduction='none') * cls_mask.unsqueeze(1)
+            ce_loss = self.ce(ce_x[batch_id, :, :], ce_y[batch_id, :]) * mask[batch_id]
             loss = paddle.mean(ce_loss)
 
-            mse = self.mse(
-                F.log_softmax(output[batch_id, :, 1:], axis=1),
-                F.log_softmax(output.detach()[batch_id, :, :-1], axis=1)) * mask[:, :, 1:]
-            mse = paddle.clip(mse, min=0, max=16)
-            mse_loss = 0.15 * paddle.mean(mse)
-            loss += mse_loss
+            # mse = self.mse(
+            #     F.log_softmax(output[batch_id, :, 1:], axis=1),
+            #     F.log_softmax(output.detach()[batch_id, :, :-1], axis=1)) * mask[batch_id, :, 1:]
+            # mse = paddle.clip(mse, min=0, max=16)
+            # mse_loss = 0.15 * paddle.mean(mse)
+            # loss += mse_loss
         return loss
 
     def get_F1_score(self, predicted, groundTruth):

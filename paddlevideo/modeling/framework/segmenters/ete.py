@@ -32,19 +32,16 @@ class ETE(BaseSegmenter):
         super().__init__(backbone, neck, head, loss)
         self.seg_weight = seg_weight
 
-        self.num_segs = backbone.num_seg
-        self.sliding_strike = 5
-        self.clip_buffer_num = 0
-        self.sample_rate = 4
-        # self.sliding_strike = neck.sliding_strike
-        # self.clip_buffer_num = neck.clip_buffer_num
-        # self.sample_rate = head.sample_rate
+        self.num_segs = neck.num_segs
+        self.sliding_strike = neck.sliding_strike
+        self.clip_buffer_num = neck.clip_buffer_num
+        self.sample_rate = head.sample_rate
         self.num_classes = head.num_classes
 
         self.memery_buffer = None
         self.mask_buffer = None
 
-    def forward_net(self, imgs, seg_mask, start_frame, mode):
+    def forward_net(self, imgs, seg_mask, start_frame):
         # step 2 extract feature
         """Define how the model is going to train, from input to output.
         """
@@ -60,7 +57,7 @@ class ETE(BaseSegmenter):
         if self.neck is not None:
             seg_feature, memery_buffer, mask_buffer = self.neck(
                 feature, seg_mask[:, :, -(self.num_segs * self.sample_rate):][:, :, ::self.sample_rate],
-                self.memery_buffer, self.mask_buffer, self.num_segs, start_frame)
+                self.memery_buffer, self.mask_buffer, start_frame)
             
             # step 4 store memery buffer
             self.memery_buffer = memery_buffer
@@ -70,30 +67,23 @@ class ETE(BaseSegmenter):
 
         # step 5 segmentation
         if self.head is not None:
-            # seg_score = self.head(seg_feature, seg_mask)
-            seg_score = self.head(seg_feature, self.num_segs)
+            seg_score = self.head(seg_feature, seg_mask)
         else:
             seg_score = None
 
         return seg_score
     
-    def _post_processing(self, pred_cls, pred_score, video_gt):
+    def _post_processing(self, pred_score, video_gt):
         pred_score_list = []
         pred_cls_list = []
 
         for bs in range(pred_score.shape[0]):
             index = np.where(video_gt[bs, :].numpy() == -100)
             ignore_start = min(index[0])
-            predicted = pred_cls[bs, :ignore_start]
+            predicted = paddle.argmax(pred_score[bs, :, :ignore_start], axis=0)
+            predicted = paddle.squeeze(predicted)
             pred_cls_list.append(predicted)
             pred_score_list.append(pred_score[bs, :, :ignore_start])
-        # for bs in range(pred_score.shape[0]):
-        #     index = np.where(video_gt[bs, :].numpy() == -100)
-        #     ignore_start = min(index[0])
-        #     predicted = paddle.argmax(pred_score[bs, :, :ignore_start], axis=0)
-        #     predicted = paddle.squeeze(predicted)
-        #     pred_cls_list.append(predicted)
-        #     pred_score_list.append(pred_score[bs, :, :ignore_start])
 
         return pred_score_list, pred_cls_list
 
@@ -106,7 +96,6 @@ class ETE(BaseSegmenter):
 
         # initilaze output result
         pred_score = paddle.zeros((imgs_np.shape[0], self.num_classes, imgs_np.shape[1] * self.sample_rate))
-        pred_cls = paddle.zeros((imgs_np.shape[0], imgs_np.shape[1] * self.sample_rate))
 
         total_seg_loss = 0.
         sliding_num = imgs_np.shape[1] // self.sliding_strike
@@ -143,29 +132,19 @@ class ETE(BaseSegmenter):
                 sample_seg_mask = paddle.concat([mask_pad, sample_seg_mask], axis=2)
 
             # call forward
-            headoutputs = self.forward_net(imgs, sample_seg_mask, start_frame, 'val')
+            headoutputs = self.forward_net(imgs, sample_seg_mask, start_frame)
 
-            output, score_no_reduce = headoutputs
+            output = headoutputs
 
             # step 6 post precessing
-            score_no_reduce = paddle.transpose(score_no_reduce, [0, 2, 1])# [N, num_class, num_seg]
-            score_upsample = F.interpolate(x=score_no_reduce.unsqueeze(2),
-                                       size=[1, score_no_reduce.shape[-1] * self.sample_rate],
-                                       mode="bilinear",
-                                       data_format='NCHW').squeeze(2)
-            # pred_score[:, :, gt_start_frame:gt_end_frame] = output[-1, :, :, start_overwrite_frame:].clone().detach()
-            cls_index = paddle.cast(paddle.argmax(output, axis=1).unsqueeze(1), dtype='float32')
-            pred_cls[:, gt_start_frame:gt_end_frame] = paddle.tile(cls_index, repeat_times=[1, gt_end_frame-gt_start_frame]).clone().detach()
-            pred_score[:, :, gt_start_frame:gt_end_frame] = score_upsample.clone().detach()
+            pred_score[:, :, gt_start_frame:gt_end_frame] = output[-1, :, :, start_overwrite_frame:].clone().detach()
 
-            # seg_loss = 0.
-            # for i in range(len(output)):
-            #     seg_loss += self.head.loss(output[i], seg_gt, sample_seg_mask)
-            seg_loss = self.head.loss(output, seg_gt)['loss']
-            loss = self.seg_weight * seg_loss
+            seg_loss = 0.
+            for i in range(len(output)):
+                seg_loss += self.head.loss(output[i], seg_gt, sample_seg_mask)
 
             # 4.2 backward
-            loss.backward()
+            seg_loss.backward()
             # 4.3 minimize
             optimizer.step()
             optimizer.clear_grad()
@@ -176,17 +155,16 @@ class ETE(BaseSegmenter):
         
         # mean loss
         total_seg_loss = total_seg_loss / sliding_cnt
-        loss = self.seg_weight * total_seg_loss
 
         # step last clear memery buffer
         self.memery_buffer = None
         self.mask_buffer = None
 
-        pred_score_list, pred_cls_list = self._post_processing(pred_cls, pred_score, video_gt)
+        pred_score_list, pred_cls_list = self._post_processing(pred_score, video_gt)
 
         loss_metrics = dict()
-        loss_metrics['loss'] = loss
-        # loss_metrics['F1@0.50'] = self.head.get_F1_score(pred_cls_list, video_gt)
+        loss_metrics['loss'] = total_seg_loss
+        loss_metrics['F1@0.50'] = self.head.get_F1_score(pred_cls_list, video_gt)
 
         loss_metrics['predict'] = pred_cls_list
         loss_metrics['output_np'] = pred_score_list
@@ -201,16 +179,14 @@ class ETE(BaseSegmenter):
 
         # initilaze output result
         pred_score = paddle.zeros((imgs_np.shape[0], self.num_classes, imgs_np.shape[1] * self.sample_rate))
-        pred_cls = paddle.zeros((imgs_np.shape[0], imgs_np.shape[1] * self.sample_rate))
 
-        sliding_strike = self.num_segs
         total_seg_loss = 0.
-        sliding_num = imgs_np.shape[1] // sliding_strike
-        if imgs_np.shape[1] % sliding_strike != 0:
+        sliding_num = imgs_np.shape[1] // self.sliding_strike
+        if imgs_np.shape[1] % self.sliding_strike != 0:
             sliding_num = sliding_num + 1
         sliding_cnt = 0
         # sliding segmentation
-        for start_frame in range(0, imgs_np.shape[1], sliding_strike):
+        for start_frame in range(0, imgs_np.shape[1], self.sliding_strike):
             segment_len = self.sample_rate * self.num_segs * (self.clip_buffer_num + 1)
             # step 1 sliding sample
             end_frame = start_frame + self.num_segs
@@ -218,7 +194,7 @@ class ETE(BaseSegmenter):
             if end_frame > imgs_np.shape[1]:
                 break
             # generate index
-            start_overwrite_frame = segment_len - (sliding_strike * sliding_cnt + self.num_segs) * self.sample_rate
+            start_overwrite_frame = segment_len - (self.sliding_strike * sliding_cnt + self.num_segs) * self.sample_rate
             if start_overwrite_frame < 0:
                 start_overwrite_frame = 0
             gt_start_frame = (start_frame - self.clip_buffer_num * self.num_segs) * self.sample_rate
@@ -239,26 +215,16 @@ class ETE(BaseSegmenter):
                 sample_seg_mask = paddle.concat([mask_pad, sample_seg_mask], axis=2)
 
             # call forward
-            headoutputs = self.forward_net(imgs, sample_seg_mask, start_frame, 'val')
+            headoutputs = self.forward_net(imgs, sample_seg_mask, start_frame)
 
-            output, score_no_reduce = headoutputs
+            output = headoutputs
 
             # step 6 post precessing
-            score_no_reduce = paddle.transpose(score_no_reduce, [0, 2, 1])# [N, num_class, num_seg]
-            score_upsample = F.interpolate(x=score_no_reduce.unsqueeze(2),
-                                       size=[1, score_no_reduce.shape[-1] * self.sample_rate],
-                                       mode="bilinear",
-                                       data_format='NCHW').squeeze(2)
-            # pred_score[:, :, gt_start_frame:gt_end_frame] = output[-1, :, :, start_overwrite_frame:].clone().detach()
-            cls_index = paddle.cast(paddle.argmax(output, axis=1).unsqueeze(1), dtype='float32')
-            pred_cls[:, gt_start_frame:gt_end_frame] = paddle.tile(cls_index, repeat_times=[1, gt_end_frame-gt_start_frame]).clone().detach()
-            pred_score[:, :, gt_start_frame:gt_end_frame] = score_upsample.clone().detach()
+            pred_score[:, :, gt_start_frame:gt_end_frame] = output[-1, :, :, start_overwrite_frame:].clone().detach()
 
-            # seg_loss = 0.
-            # for i in range(len(output)):
-            #     seg_loss += self.head.loss(output[i], seg_gt, sample_seg_mask)
-            seg_loss = self.head.loss(output, seg_gt)['loss']
-            loss = self.seg_weight * seg_loss
+            seg_loss = 0.
+            for i in range(len(output)):
+                seg_loss += self.head.loss(output[i], seg_gt, sample_seg_mask)
 
             # log loss
             total_seg_loss = total_seg_loss + seg_loss.clone().detach()
@@ -266,17 +232,16 @@ class ETE(BaseSegmenter):
         
         # mean loss
         total_seg_loss = total_seg_loss / sliding_cnt
-        loss = self.seg_weight * total_seg_loss
 
         # step last clear memery buffer
         self.memery_buffer = None
         self.mask_buffer = None
 
-        pred_score_list, pred_cls_list = self._post_processing(pred_cls, pred_score, video_gt)
+        pred_score_list, pred_cls_list = self._post_processing(pred_score, video_gt)
 
         loss_metrics = dict()
-        loss_metrics['loss'] = loss
-        # loss_metrics['F1@0.50'] = self.head.get_F1_score(pred_cls_list, video_gt)
+        loss_metrics['loss'] = total_seg_loss
+        loss_metrics['F1@0.50'] = self.head.get_F1_score(pred_cls_list, video_gt)
 
         loss_metrics['predict'] = pred_cls_list
         loss_metrics['output_np'] = pred_score_list
