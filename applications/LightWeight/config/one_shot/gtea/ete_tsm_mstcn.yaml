@@ -4,7 +4,7 @@ MODEL: #MODEL field
         name: "ResNetTSM" #Mandatory, The name of backbone.
         pretrained: "data/ResNet50_pretrain.pdparams" #Optional, pretrained model path.
         num_seg: 15
-        depth: 18 #Optional, the depth of backbone architecture. # 层数是不是太深了
+        depth: 50 #Optional, the depth of backbone architecture. # 层数是不是太深了
     neck:
         name: "ETENeck" # 层数多 对比层数少的分数
         buffer_channels: 128
@@ -19,7 +19,7 @@ MODEL: #MODEL field
         num_stages: 1 #Optional, the number of stages.
         num_layers: 3 # Optional, the number of layers in each stage.
         num_f_maps: 64 #Optional, the number of channels in each layers.
-        in_channels: 2048 #Optional, the number of channels in input feature.
+        in_channels: 2048  #Optional, the number of channels in input feature.
         sample_rate: 4
         drop_ratio: 0.5 #the ratio of dropout
         std: 0.001 #std value in params initialization

@@ -49,7 +49,9 @@ class ETEHead(TSNHead):
                          std=std,
                          data_format=data_format,
                          **kwargs)
-        self.ce = nn.CrossEntropyLoss(ignore_index=-100, use_softmax=True, reduction='none')
+        self.ce = nn.CrossEntropyLoss(ignore_index=-100,
+                                      use_softmax=True,
+                                      reduction='none')
         self.mse = nn.MSELoss(reduction='none')
         self.num_classes = num_classes
         self.sample_rate = sample_rate
@@ -58,8 +60,8 @@ class ETEHead(TSNHead):
 
         # cls score
         self.overlap = 0.5
-        self.embed_bn_norm = nn.BatchNorm1D(in_channels)
-        self.stage1 = SingleStageModel(num_layers, num_f_maps, in_channels, num_classes)
+        self.stage1 = SingleStageModel(num_layers, num_f_maps, in_channels,
+                                       num_classes)
         self.stages = nn.LayerList([
             copy.deepcopy(
                 SingleStageModel(num_layers, num_f_maps, num_classes,
@@ -89,11 +91,11 @@ class ETEHead(TSNHead):
         # segmentation branch
         # seg_feature [N, in_channels, temporal_len]
         # Interploate upsample
-        seg_x_upsample = F.interpolate(x=seg_feature.unsqueeze(2),
-                                       size=[1, seg_feature.shape[-1] * self.sample_rate],
-                                       mode="bilinear",
-                                       data_format=self.data_format).squeeze(2)
-        seg_x_upsample = self.embed_bn_norm(seg_x_upsample)
+        seg_x_upsample = F.interpolate(
+            x=seg_feature.unsqueeze(2),
+            size=[1, seg_feature.shape[-1] * self.sample_rate],
+            mode="bilinear",
+            data_format=self.data_format).squeeze(2)
         seg_x_upsample = self.drop(seg_x_upsample)
         out = self.stage1(seg_x_upsample, seg_mask)
         outputs = out.unsqueeze(0)
@@ -126,15 +128,17 @@ class ETEHead(TSNHead):
         ce_y = video_gt
         loss = 0.0
         for batch_id in range(output.shape[0]):
-            ce_loss = self.ce(ce_x[batch_id, :, :], ce_y[batch_id, :]) * mask[batch_id]
+            ce_loss = self.ce(ce_x[batch_id, :, :],
+                              ce_y[batch_id, :]) * mask[batch_id]
             loss = paddle.mean(ce_loss)
 
-            # mse = self.mse(
-            #     F.log_softmax(output[batch_id, :, 1:], axis=1),
-            #     F.log_softmax(output.detach()[batch_id, :, :-1], axis=1)) * mask[batch_id, :, 1:]
-            # mse = paddle.clip(mse, min=0, max=16)
-            # mse_loss = 0.15 * paddle.mean(mse)
-            # loss += mse_loss
+            mse = self.mse(
+                F.log_softmax(output[batch_id, :, 1:], axis=1),
+                F.log_softmax(output.detach()[batch_id, :, :-1],
+                              axis=1)) * mask[batch_id, :, 1:]
+            mse = paddle.clip(mse, min=0, max=16)
+            mse_loss = 0.15 * paddle.mean(mse)
+            loss += mse_loss
         return loss
 
     def get_F1_score(self, predicted, groundTruth):
@@ -144,7 +148,7 @@ class ETEHead(TSNHead):
         edit = 0
         tp = 0
         fp = 0
-        fn = 0   
+        fn = 0
 
         for batch_size in range(groundTruth.shape[0]):
             index = np.where(groundTruth[batch_size, :].numpy() == -100)
