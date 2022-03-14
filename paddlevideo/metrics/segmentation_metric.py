@@ -23,6 +23,7 @@ from .segmentation_utils import levenstein, edit_score, f_score, boundary_AR
 from .segmentation_utils import wrapper_compute_average_precision
 
 logger = get_logger("paddlevideo")
+import os
 
 
 class BaseSegmentationMetric(BaseMetric):
@@ -149,6 +150,14 @@ class BaseSegmentationMetric(BaseMetric):
         self.gt_results_dict["t_end"] = self.gt_results_dict["t_end"] + g_end
         self.gt_results_dict["label"] = self.gt_results_dict["label"] + g_label
 
+    def _write_seg_file(self, input_data, write_path):
+        recog_content = [line + "\n" for line in input_data]
+
+        write_path = os.path.join(write_path + ".txt")
+        f = open(write_path, "w")
+        f.writelines(recog_content)
+        f.close()
+
     def _transform_model_result(self, outputs_np, gt_np, outputs_arr):
         recognition = []
         for i in range(outputs_np.shape[0]):
@@ -158,6 +167,7 @@ class BaseSegmentationMetric(BaseMetric):
             ]))
         recog_content = list(recognition)
 
+        # self._write_seg_file(recog_content, 'pred')
         gt_content = []
         for i in range(gt_np.shape[0]):
             gt_content = np.concatenate((gt_content, [
@@ -165,6 +175,7 @@ class BaseSegmentationMetric(BaseMetric):
                     self.actions_dict.values()).index(gt_np[i])]
             ]))
         gt_content = list(gt_content)
+        # self._write_seg_file(gt_content, 'gt')
 
         pred_detection = get_labels_scores_start_end_time(
             outputs_arr, recog_content, self.actions_dict)
@@ -329,10 +340,11 @@ class SegmentationMetric(BaseSegmentationMetric):
                 outputs_arr = output_np
                 gt_np = groundTruth[bs, :ignore_start]
 
-            result = self._transform_model_result(outputs_np, gt_np, outputs_arr)
+            result = self._transform_model_result(outputs_np, gt_np,
+                                                  outputs_arr)
             recog_content, gt_content, pred_detection, gt_detection = result
-            self._update_score([int(vid[bs])], recog_content, gt_content, pred_detection,
-                            gt_detection)
+            self._update_score([int(vid[bs])], recog_content, gt_content,
+                               pred_detection, gt_detection)
 
     def accumulate(self):
         """accumulate metrics when finished all iters.

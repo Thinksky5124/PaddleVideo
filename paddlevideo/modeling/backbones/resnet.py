@@ -42,6 +42,7 @@ class ConvBNLayer(nn.Layer):
     Note: weight and bias initialization include initialize values and name the restored parameters, values initialization are explicit declared in the ```init_weights``` method.
 
     """
+
     def __init__(self,
                  in_channels,
                  out_channels,
@@ -80,6 +81,7 @@ class ConvBNLayer(nn.Layer):
 
 
 class BottleneckBlock(nn.Layer):
+
     def __init__(self,
                  in_channels,
                  out_channels,
@@ -127,6 +129,7 @@ class BottleneckBlock(nn.Layer):
 
 
 class BasicBlock(nn.Layer):
+
     def __init__(self,
                  in_channels,
                  out_channels,
@@ -137,20 +140,20 @@ class BasicBlock(nn.Layer):
         self.stride = stride
         self.conv0 = ConvBNLayer(in_channels=in_channels,
                                  out_channels=out_channels,
-                                 filter_size=3,
+                                 kernel_size=3,
                                  stride=stride,
                                  act="relu",
                                  name=name + "_branch2a")
         self.conv1 = ConvBNLayer(in_channels=out_channels,
                                  out_channels=out_channels,
-                                 filter_size=3,
+                                 kernel_size=3,
                                  act=None,
                                  name=name + "_branch2b")
 
         if not shortcut:
             self.short = ConvBNLayer(in_channels=in_channels,
                                      out_channels=out_channels,
-                                     filter_size=1,
+                                     kernel_size=1,
                                      stride=stride,
                                      name=name + "_branch1")
 
@@ -177,6 +180,7 @@ class ResNet(nn.Layer):
         depth (int): Depth of resnet model.
         pretrained (str): pretrained model. Default: None.
     """
+
     def __init__(self, depth, pretrained=None):
         super(ResNet, self).__init__()
         self.pretrained = pretrained

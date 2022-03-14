@@ -105,6 +105,8 @@ python -B -m paddle.distributed.launch --gpus="2,3"  --log_dir=./output main.py 
 
 # 50salads
 
+# breakfast
+python main.py  --validate -c applications/LightWeight/config/one_shot/breakfast/ete_tsm_mstcn.yaml --seed 0
 ```
 ## test model
 ```bash

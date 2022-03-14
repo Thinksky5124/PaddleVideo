@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from matplotlib import use
 import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
@@ -60,14 +59,21 @@ class ETEHead(TSNHead):
 
         # cls score
         self.overlap = 0.5
-        self.stage1 = SingleStageModel(num_layers, num_f_maps, in_channels,
-                                       num_classes)
+        self.seg_conv = SingleStageModel(num_layers, num_f_maps, in_channels,
+                                         num_classes)
         self.stages = nn.LayerList([
             copy.deepcopy(
                 SingleStageModel(num_layers, num_f_maps, num_classes,
                                  num_classes)) for s in range(num_stages - 1)
         ])
-        self.drop = nn.Dropout(p=self.drop_ratio)
+
+        # feature extract
+        self.fc = Linear(2048, self.num_classes)
+
+        self.ce_soft = paddle.nn.CrossEntropyLoss(ignore_index=-100,
+                                                  use_softmax=True,
+                                                  soft_label=True,
+                                                  reduction='none')
 
         assert (data_format in [
             'NCHW', 'NHWC'
@@ -85,7 +91,7 @@ class ETEHead(TSNHead):
                     layer.bias.set_value(
                         init_bias(layer.weight, layer.bias).astype('float32'))
 
-    def forward(self, seg_feature, seg_mask):
+    def forward(self, seg_feature, cls_feature, seg_mask):
         """MS-TCN no head
         """
         # segmentation branch
@@ -96,8 +102,8 @@ class ETEHead(TSNHead):
             size=[1, seg_feature.shape[-1] * self.sample_rate],
             mode="bilinear",
             data_format=self.data_format).squeeze(2)
-        seg_x_upsample = self.drop(seg_x_upsample)
-        out = self.stage1(seg_x_upsample, seg_mask)
+
+        out = self.seg_conv(seg_x_upsample, seg_mask)
         outputs = out.unsqueeze(0)
         # seg_feature [stage_num, N, num_class, temporal_len]
         for s in self.stages:
@@ -105,21 +111,24 @@ class ETEHead(TSNHead):
             outputs = paddle.concat((outputs, out.unsqueeze(0)), axis=0)
         seg_score = outputs
 
-        # classification branch
-        # if self.dropout is not None:
-        #     cls_x = self.dropout(
-        #         seg_x_upsample)  # [N, in_channels, temporal_len]
-        # cls_x = paddle.transpose(seg_x_upsample, [0, 2, 1])
-        # cls_x = paddle.reshape(seg_x_upsample, [-1, self.in_channels])# [N * temporal_len, in_channels]
-        # score = self.fc(cls_x)  # [N * temporal_len, num_class]
-        # seg_score = paddle.reshape(
-        #     score,
-        #     [seg_feature.shape[0], -1, score.shape[1]])  # [N, temporal_len, num_class]
-        # seg_score = paddle.transpose(seg_score, [0, 2, 1]).unsqueeze(0)
-        # [1, N, num_class, temporal_len]
-        return seg_score
+        if self.dropout is not None:
+            x = self.dropout(cls_feature)  # [N * num_seg, in_channels, 1, 1]
 
-    def loss(self, output, video_gt, mask):
+        if self.data_format == 'NCHW':
+            x = paddle.reshape(x, x.shape[:2])
+        else:
+            x = paddle.reshape(x, x.shape[::3])
+        score = self.fc(x)  # [N * num_seg, num_class]
+        score = paddle.reshape(score,
+                               [-1, seg_feature.shape[2], score.shape[1]
+                                ])  # [N, num_seg, num_class]
+        score = paddle.mean(score, axis=1)  # [N, num_class]
+        cls_score = paddle.reshape(score,
+                                   shape=[-1,
+                                          self.num_classes])  # [N, num_class]
+        return seg_score, cls_score
+
+    def seg_loss(self, output, video_gt, mask):
         """calculate loss
         """
         # output shape [N C T]
@@ -140,6 +149,23 @@ class ETEHead(TSNHead):
             mse_loss = 0.15 * paddle.mean(mse)
             loss += mse_loss
         return loss
+
+    def feature_extract_loss(self, cls_score, seg_gt):
+        # [N T]
+        ce_y = seg_gt[:, ::self.sample_rate]
+        # [N C T]
+        ce_y = F.one_hot(ce_y, num_classes=self.num_classes)
+        # [N C]
+        smooth_label = paddle.sum(ce_y, axis=1) / ce_y.shape[1]
+
+        # [N, 1]
+        mask = paddle.where(
+            paddle.sum(smooth_label, axis=1) != 0,
+            paddle.ones([smooth_label.shape[0]]),
+            paddle.zeros([smooth_label.shape[0]]))
+
+        cls_loss = paddle.mean(self.ce_soft(cls_score, smooth_label) * mask)
+        return cls_loss
 
     def get_F1_score(self, predicted, groundTruth):
         # cls score
@@ -199,7 +225,7 @@ class ETEHead(TSNHead):
     def levenstein(self, p, y, norm=False):
         m_row = len(p)
         n_col = len(y)
-        D = np.zeros([m_row + 1, n_col + 1], np.float)
+        D = np.zeros([m_row + 1, n_col + 1])
         for i in range(m_row + 1):
             D[i, 0] = i
         for i in range(n_col + 1):

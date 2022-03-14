@@ -37,14 +37,15 @@ from paddlevideo.utils import do_preciseBN
 from paddlevideo.metrics import SegmentationMetric
 from paddlevideo.metrics import build_metric
 
+
 def sliding_train_model(cfg,
-                weights=None,
-                parallel=True,
-                validate=True,
-                amp=False,
-                max_iters=None,
-                use_fleet=False,
-                profiler_options=None):
+                        weights=None,
+                        parallel=True,
+                        validate=True,
+                        amp=False,
+                        max_iters=None,
+                        use_fleet=False,
+                        profiler_options=None):
     """Train model entry
 
     Args:
@@ -101,7 +102,7 @@ def sliding_train_model(cfg,
     model_name = cfg.model_name
     output_dir = cfg.get("output_dir", f"./output/{model_name}")
     mkdir(output_dir)
-    
+
     # 1. Construct model
     model = build_model(cfg.MODEL)
     if parallel:
@@ -217,7 +218,7 @@ def sliding_train_model(cfg,
                     scaler.minimize(optimizer, scaled)
                     optimizer.clear_grad()
             else:
-                outputs = model(data, optimizer, mode='train')
+                outputs = model(data, mode='train')
                 avg_loss = outputs['loss']
                 if use_gradient_accumulation:
                     # clear grad at when epoch begins
@@ -232,13 +233,13 @@ def sliding_train_model(cfg,
                         optimizer.step()
                         optimizer.clear_grad()
                 else:  # general case
-                    Metric.update(i, data, outputs)
                     # # 4.2 backward
                     # avg_loss.backward()
                     # # 4.3 minimize
-                    # optimizer.step()
-                    # optimizer.clear_grad()
-        
+                    optimizer.step()
+                    optimizer.clear_grad()
+                    Metric.update(i, data, outputs)
+
             # log record
             record_list['lr'].update(optimizer.get_lr(), batch_size)
             for name, value in outputs.items():
@@ -298,10 +299,9 @@ def sliding_train_model(cfg,
                     ips = "ips: {:.5f} instance/sec.".format(
                         valid_batch_size / record_list["batch_time"].val)
                     log_batch(record_list, i, epoch + 1, cfg.epochs, "val", ips)
-            
+
             # metric output
             Metric_dict = Metric.accumulate()
-            
 
             if cfg.MODEL.framework == "FastRCNN":
                 if parallel:
@@ -323,9 +323,9 @@ def sliding_train_model(cfg,
                     best = record_list["mAP@0.5IOU"].val
                     best_flag = True
                 return best, best_flag
-            
+
             if cfg.MODEL.framework == "ETE" and (not parallel or
-                                                      (parallel and rank == 0)):
+                                                 (parallel and rank == 0)):
                 if Metric_dict["F1@0.50"] > best:
                     best = Metric_dict["F1@0.50"]
                     best_flag = True

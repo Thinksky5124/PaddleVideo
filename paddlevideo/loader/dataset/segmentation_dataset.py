@@ -65,11 +65,13 @@ class SegmentationDataset(BaseDataset):
                  pipeline,
                  actions_map_file_path,
                  suffix='',
+                 dataset_type='gtea',
                  **kwargs):
         self.suffix = suffix
         self.videos_path = videos_path
         self.gt_path = gt_path
         self.actions_map_file_path = actions_map_file_path
+        self.dataset_type = dataset_type
 
         # actions dict generate
         file_ptr = open(self.actions_map_file_path, 'r')
@@ -82,9 +84,27 @@ class SegmentationDataset(BaseDataset):
         super().__init__(file_path, pipeline, **kwargs)
 
     def parse_file_paths(self, input_path):
-        file_ptr = open(input_path, 'r')
-        info = file_ptr.read().split('\n')[:-1]
-        file_ptr.close()
+        if self.dataset_type in ['gtea', '50salads']:
+            file_ptr = open(input_path, 'r')
+            info = file_ptr.read().split('\n')[:-1]
+            file_ptr.close()
+        elif self.dataset_type in ['breakfast']:
+            file_ptr = open(input_path, 'r')
+            info = file_ptr.read().split('\n')[:-1]
+            file_ptr.close()
+            refine_info = []
+            for info_name in info:
+                video_ptr = info_name.split('.')[0].split('_')
+                file_name = ''
+                for j in range(2):
+                    if video_ptr[j] == 'stereo01':
+                        video_ptr[j] = 'stereo'
+                    file_name = file_name + video_ptr[j] + '/'
+                file_name = file_name + video_ptr[2] + '_' + video_ptr[3]
+                if 'stereo' in file_name:
+                    file_name = file_name + '_ch0'
+                refine_info.append([info_name, file_name])
+            info = refine_info
         return info
 
     def load_file(self):
@@ -92,22 +112,35 @@ class SegmentationDataset(BaseDataset):
         video_segment_lists = self.parse_file_paths(self.file_path)
         info = []
         for video_segment in video_segment_lists:
-            video_name = video_segment.split('.')[0]
-            label_path = os.path.join(self.gt_path, video_name + '.txt')
+            if self.dataset_type in ['gtea', '50salads']:
+                video_name = video_segment.split('.')[0]
+                label_path = os.path.join(self.gt_path, video_name + '.txt')
 
-            video_path = os.path.join(self.videos_path, video_name + '.mp4')
-            if not osp.isfile(video_path):
-                video_path = os.path.join(self.videos_path, video_name + '.avi')
+                video_path = os.path.join(self.videos_path, video_name + '.mp4')
                 if not osp.isfile(video_path):
-                    raise NotImplementedError
+                    video_path = os.path.join(self.videos_path,
+                                              video_name + '.avi')
+                    if not osp.isfile(video_path):
+                        raise NotImplementedError
+            elif self.dataset_type in ['breakfast']:
+                video_segment_name, video_segment_path = video_segment
+                video_name = video_segment_name.split('.')[0]
+                label_path = os.path.join(self.gt_path, video_name + '.txt')
+
+                video_path = os.path.join(self.videos_path,
+                                          video_segment_path + '.mp4')
+                if not osp.isfile(video_path):
+                    video_path = os.path.join(self.videos_path,
+                                              video_segment_path + '.avi')
+                    if not osp.isfile(video_path):
+                        raise NotImplementedError
             file_ptr = open(label_path, 'r')
             content = file_ptr.read().split('\n')[:-1]
             classes = np.zeros(len(content), dtype='int64')
             for i in range(len(content)):
                 classes[i] = self.actions_dict[content[i]]
             info.append(
-                dict(filename=video_path,
-                     labels=classes,
+                dict(filename=video_path, labels=classes,
                      video_name=video_name))
         return info
 
@@ -124,6 +157,7 @@ class SegmentationDataset(BaseDataset):
         results = self.pipeline(results)
 
         return results['imgs'], results['labels'], idx
+
 
 # @DATASETS.register()
 # class SegmentationDataset(BaseDataset):
